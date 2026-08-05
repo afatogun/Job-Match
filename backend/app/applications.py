@@ -11,13 +11,24 @@ from .documents import (
     PdfUnavailable,
     application_folder,
     docx_to_pdf,
+    render_cv_pdf_simple,
     render_cover_letter_docx,
     render_cv_docx,
     slugify,
 )
-from .generation import generate_cover_letter, generate_cv
+from .generation import generate_cover_letter, generate_cv, generate_interview_prep
+from .interview_external import fetch_external_interview_prep
 from .humanize import clean_text, find_tells, reads_monotonous
-from .models import Application, Augmentation, GeneratedCV, GenerationStatus, Job
+from .models import (
+    APPLICATION_STAGES,
+    Application,
+    ApplicationStage,
+    Augmentation,
+    GeneratedCV,
+    GenerationStatus,
+    InterviewPrepData,
+    Job,
+)
 from .profile_store import load_profile
 from .settings_store import load_settings
 
@@ -66,6 +77,13 @@ def _row_to_application(row, job: Job | None = None) -> Application:
             [cv.summary, *(b.text for e in cv.experience for b in e.bullets)]
         )
     letter = row["cover_letter_text"] or ""
+    prep = None
+    prep_raw = row["interview_prep_json"] if "interview_prep_json" in row.keys() else None
+    if prep_raw:
+        try:
+            prep = InterviewPrepData.model_validate_json(prep_raw)
+        except ValueError:
+            prep = None
 
     return Application(
         id=row["id"],
@@ -82,6 +100,13 @@ def _row_to_application(row, job: Job | None = None) -> Application:
         has_cover_letter_docx=exists(row["cover_letter_docx"]),
         model=row["model"],
         profile_id=row["profile_id"] if "profile_id" in row.keys() else None,
+        stage=(
+            row["stage"]
+            if "stage" in row.keys() and row["stage"] in APPLICATION_STAGES
+            else "generated"
+        ),
+        stage_updated_at=row["stage_updated_at"] if "stage_updated_at" in row.keys() else None,
+        interview_prep=prep,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         job=job,
@@ -122,7 +147,12 @@ def render_documents(job_id: int) -> tuple[bool, str | None]:
     try:
         docx_to_pdf(cv_docx, cv_pdf)
     except PdfUnavailable as exc:
-        pdf_ok, pdf_error = False, str(exc)
+        try:
+            render_cv_pdf_simple(app_model.cv, cv_pdf)
+        except Exception as fallback_exc:  # noqa: BLE001
+            pdf_ok, pdf_error = False, f"{exc}; fallback PDF render failed: {fallback_exc}"
+        else:
+            pdf_ok, pdf_error = True, None
 
     with connect() as conn:
         conn.execute(
@@ -165,8 +195,9 @@ def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> A
         conn.execute(
             """
             INSERT INTO applications (job_id, augmentation, cv_json, cover_letter_text,
-                                      flagged_additions, model, profile_id, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?)
+                                      flagged_additions, model, profile_id, stage,
+                                      stage_updated_at, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(job_id) DO UPDATE SET
                 augmentation      = excluded.augmentation,
                 cv_json           = excluded.cv_json,
@@ -174,6 +205,8 @@ def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> A
                 flagged_additions = excluded.flagged_additions,
                 model             = excluded.model,
                 profile_id        = excluded.profile_id,
+                stage             = COALESCE(applications.stage, excluded.stage),
+                stage_updated_at  = COALESCE(applications.stage_updated_at, excluded.stage_updated_at),
                 updated_at        = excluded.updated_at
             """,
             (
@@ -184,6 +217,8 @@ def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> A
                 json.dumps(result.flagged_additions),
                 settings.openai_model,
                 pid,
+                "generated",
+                now,
                 now,
                 now,
             ),
@@ -232,6 +267,74 @@ def update_cover_letter(job_id: int, text: str) -> Application:
         if cur.rowcount == 0:
             raise ValueError("No application generated for this job yet")
     render_documents(job_id)
+    app_model = get_application(job_id)
+    assert app_model is not None
+    return app_model
+
+
+def update_application_stage(job_id: int, stage: ApplicationStage) -> Application:
+    """Update application stage progression for interview tracking."""
+    now = _now()
+    with connect() as conn:
+        cur = conn.execute(
+            """
+            UPDATE applications
+               SET stage = ?, stage_updated_at = ?, updated_at = ?
+             WHERE job_id = ?
+            """,
+            (stage, now, now, job_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError("No application generated for this job yet")
+    app_model = get_application(job_id)
+    assert app_model is not None
+    return app_model
+
+
+def generate_application_interview_prep(job_id: int) -> Application:
+    """Generate AI interview preparation content for an existing application."""
+    settings = load_settings()
+    profile = load_profile()
+    if profile is None:
+        raise ValueError("Upload your master CV on the Profile page first")
+
+    with connect() as conn:
+        app_row = conn.execute("SELECT id FROM applications WHERE job_id = ?", (job_id,)).fetchone()
+        if app_row is None:
+            raise ValueError("No application generated for this job yet")
+        job = _job_row(conn, job_id)
+
+    prep = None
+    if settings.enable_external_interview_data:
+        try:
+            prep = fetch_external_interview_prep(job)
+        except Exception as exc:  # noqa: BLE001 - external discovery is best effort
+            log.warning("External interview lookup failed for job %s: %s", job_id, exc)
+
+    if prep is None:
+        prep = generate_interview_prep(profile, job, settings.openai_model)
+        if settings.enable_external_interview_data:
+            prep.source_note = (
+                "External interview lookup is enabled, but no reliable external questions were found for "
+                "this role right now. Showing AI-generated prep instead."
+            )
+    elif prep.source == "external":
+        prep.source_note = (
+            prep.source_note
+            or "External interview data may be incomplete or noisy; treat as guidance and verify against the posting."
+        )
+
+    now = _now()
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE applications
+               SET interview_prep_json = ?, interview_prep_generated_at = ?, updated_at = ?
+             WHERE job_id = ?
+            """,
+            (prep.model_dump_json(), prep.generated_at or now, now, job_id),
+        )
+
     app_model = get_application(job_id)
     assert app_model is not None
     return app_model

@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom'
 
 import { api } from '../api'
 import { EmptyState } from '../components/ui'
-import type { Application, ProfileMeta } from '../types'
+import { APPLICATION_STAGES } from '../types'
+import type { Application, ApplicationStage, ProfileMeta } from '../types'
 
 export function ApplicationsPage() {
   const [apps, setApps] = useState<Application[] | null>(null)
   const [profiles, setProfiles] = useState<ProfileMeta[]>([])
+  const [savingJobId, setSavingJobId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -17,6 +19,22 @@ export function ApplicationsPage() {
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load applications'))
     api.listProfiles().then(setProfiles).catch(() => undefined)
   }, [])
+
+  const updateStage = async (jobId: number, stage: ApplicationStage) => {
+    setSavingJobId(jobId)
+    try {
+      const updated = await api.setApplicationStage(jobId, stage)
+      setApps((prev) =>
+        prev
+          ? prev.map((app) => (app.job_id === jobId ? { ...app, stage: updated.stage, stage_updated_at: updated.stage_updated_at, updated_at: updated.updated_at } : app))
+          : prev,
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update application stage')
+    } finally {
+      setSavingJobId(null)
+    }
+  }
 
   return (
     <div className="mx-auto max-w-screen-2xl px-6 py-6">
@@ -55,6 +73,9 @@ export function ApplicationsPage() {
                   {app.job?.location && <span className="text-slate-400"> · {app.job.location}</span>}
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="rounded-md bg-sky-50 px-2 py-0.5 capitalize text-sky-700">
+                    {app.stage.replaceAll('_', ' ')}
+                  </span>
                   <span className="rounded-md bg-slate-100 px-2 py-0.5 capitalize text-slate-600">
                     {app.augmentation}
                   </span>
@@ -81,6 +102,18 @@ export function ApplicationsPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={app.stage}
+                  disabled={savingJobId === app.job_id}
+                  onChange={(e) => updateStage(app.job_id, e.target.value as ApplicationStage)}
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs capitalize text-slate-700 focus:border-slate-500 focus:outline-none"
+                >
+                  {APPLICATION_STAGES.map((stage) => (
+                    <option key={stage} value={stage} className="capitalize">
+                      {stage.replaceAll('_', ' ')}
+                    </option>
+                  ))}
+                </select>
                 <Link
                   to={`/applications/${app.job_id}`}
                   className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700"

@@ -12,6 +12,7 @@ from ..ai import MissingAPIKey
 from ..db import connect
 from ..models import (
     Application,
+    ApplicationStageUpdate,
     BulkGenerateRequest,
     CoverLetterUpdate,
     CVUpdate,
@@ -88,6 +89,22 @@ def edit_cover_letter(job_id: int, payload: CoverLetterUpdate) -> Application:
         return service.update_cover_letter(job_id, payload.cover_letter_text)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch("/jobs/{job_id}/application/stage", response_model=Application)
+def update_application_stage(job_id: int, payload: ApplicationStageUpdate) -> Application:
+    try:
+        return service.update_application_stage(job_id, payload.stage)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/jobs/{job_id}/application/interview-prep", response_model=Application)
+def generate_interview_prep(job_id: int) -> Application:
+    try:
+        return service.generate_application_interview_prep(job_id)
+    except Exception as exc:  # noqa: BLE001 - mapped to a clean HTTP error
+        raise _handle_ai_error(exc) from exc
 
 
 @router.post("/jobs/{job_id}/rerank", response_model=dict)

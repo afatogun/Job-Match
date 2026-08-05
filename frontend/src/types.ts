@@ -34,6 +34,8 @@ export const AUGMENTATION_LEVELS: { value: Augmentation; label: string; blurb: s
 export interface SearchSettings {
   target_titles: string[]
   target_levels: string[]
+  min_years_experience: number | null
+  max_years_experience: number | null
   keywords: string[]
   excluded_keywords: string[]
   excluded_title_words: string[]
@@ -46,6 +48,7 @@ export interface SearchSettings {
   default_augmentation: Augmentation
   ai_rank_top_n: number
   min_score_to_rank: number
+  enable_external_interview_data: boolean
 }
 
 export interface Job {
@@ -131,8 +134,20 @@ export interface JobFilterState {
   profile_id: string
   posted_within_days: string
   min_score: string
-  sort: 'newest' | 'best'
+  salary_min: string
+  salary_max: string
+  sort: 'newest' | 'best' | 'salary_high'
 }
+
+export const APPLICATION_STAGES = [
+  'generated',
+  'applied',
+  'interview_stage_1',
+  'offer',
+  'rejected',
+] as const
+
+export type ApplicationStage = (typeof APPLICATION_STAGES)[number]
 
 // ------------------------------------------------------------- profile
 
@@ -248,9 +263,34 @@ export interface Application {
   has_cover_letter_docx: boolean
   model: string | null
   profile_id: string | null
+  stage: ApplicationStage
+  stage_updated_at: string | null
+  interview_prep: InterviewPrepData | null
   created_at: string
   updated_at: string
   job: Job | null
+}
+
+export interface InterviewQuestion {
+  question: string
+  why_relevant: string
+  difficulty: 'easy' | 'medium' | 'hard'
+}
+
+export interface InterviewPrepReference {
+  title: string
+  url: string
+  snippet: string
+}
+
+export interface InterviewPrepData {
+  questions: InterviewQuestion[]
+  tips: string
+  focus_areas: string[]
+  references: InterviewPrepReference[]
+  source_note: string
+  generated_at: string
+  source: 'ai' | 'external' | 'hybrid'
 }
 
 export interface GenerationStatus {

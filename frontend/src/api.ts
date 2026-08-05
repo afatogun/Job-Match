@@ -1,4 +1,5 @@
 import type {
+  ApplicationStage,
   Application,
   Augmentation,
   GeneratedCV,
@@ -64,6 +65,8 @@ export const api = {
     if (filters.status) params.set('status', filters.status)
     if (filters.posted_within_days) params.set('posted_within_days', filters.posted_within_days)
     if (filters.min_score) params.set('min_score', filters.min_score)
+    if (filters.salary_min) params.set('salary_min', filters.salary_min)
+    if (filters.salary_max) params.set('salary_max', filters.salary_max)
     if (filters.sort) params.set('sort', filters.sort)
     if (filters.profile_id) params.set('profile_id', filters.profile_id)
     params.set('limit', String(limit))
@@ -145,6 +148,17 @@ export const api = {
     request<Application>(`/api/jobs/${jobId}/application/cover-letter`, {
       method: 'PUT',
       body: JSON.stringify({ cover_letter_text: text }),
+    }),
+
+  setApplicationStage: (jobId: number, stage: ApplicationStage) =>
+    request<Application>(`/api/jobs/${jobId}/application/stage`, {
+      method: 'PATCH',
+      body: JSON.stringify({ stage }),
+    }),
+
+  generateInterviewPrep: (jobId: number) =>
+    request<Application>(`/api/jobs/${jobId}/application/interview-prep`, {
+      method: 'POST',
     }),
 
   downloadUrl: (jobId: number, filename: string) => resolveUrl(`/api/jobs/${jobId}/download/${filename}`),

@@ -28,6 +28,8 @@ const INITIAL_FILTERS: JobFilterState = {
   profile_id: '',
   posted_within_days: '',
   min_score: '',
+  salary_min: '',
+  salary_max: '',
   sort: 'best',
 }
 

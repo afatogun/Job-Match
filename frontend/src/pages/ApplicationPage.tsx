@@ -6,9 +6,10 @@ import { AugmentationPicker } from '../components/AugmentationPicker'
 import { Markdown } from '../components/Markdown'
 import { Card, Spinner } from '../components/ui'
 import { applyUrl } from '../format'
-import type { Application, Augmentation, GeneratedCV, Job } from '../types'
+import { APPLICATION_STAGES } from '../types'
+import type { Application, ApplicationStage, Augmentation, GeneratedCV, Job } from '../types'
 
-type Tab = 'cv' | 'cover'
+type Tab = 'cv' | 'cover' | 'prep'
 
 function CVPreview({ cv }: { cv: GeneratedCV }) {
   return (
@@ -193,6 +194,35 @@ export function ApplicationPage() {
     }
   }
 
+  const generateInterviewPrep = async () => {
+    setBusy('prep')
+    setError(null)
+    try {
+      const updated = await api.generateInterviewPrep(id)
+      setApp(updated)
+      setTab('prep')
+      setNotice('Interview prep generated.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not generate interview prep')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const updateStage = async (stage: ApplicationStage) => {
+    setBusy('stage')
+    setError(null)
+    try {
+      const updated = await api.setApplicationStage(id, stage)
+      setApp((prev) => (prev ? { ...prev, stage: updated.stage, stage_updated_at: updated.stage_updated_at, updated_at: updated.updated_at } : prev))
+      setNotice('Application stage updated.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update stage')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   if (error && !app) {
     return (
       <div className="mx-auto max-w-screen-2xl px-6 py-10">
@@ -303,6 +333,21 @@ export function ApplicationPage() {
                   <AugmentationPicker value={augmentation} onChange={setAugmentation} compact />
                 </div>
               </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Application stage</p>
+                <select
+                  value={app.stage}
+                  disabled={busy !== null}
+                  onChange={(e) => updateStage(e.target.value as ApplicationStage)}
+                  className="mt-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm capitalize text-slate-700 focus:border-slate-500 focus:outline-none"
+                >
+                  {APPLICATION_STAGES.map((stage) => (
+                    <option key={stage} value={stage} className="capitalize">
+                      {stage.replaceAll('_', ' ')}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <button
                 onClick={regenerate}
                 disabled={busy !== null}
@@ -361,10 +406,15 @@ export function ApplicationPage() {
                 Generated with {app.model} · {new Date(app.updated_at).toLocaleString('en-IE')}
               </p>
             )}
+            {app.stage_updated_at && (
+              <p className="text-[11px] text-slate-400">
+                Stage updated {new Date(app.stage_updated_at).toLocaleString('en-IE')}
+              </p>
+            )}
           </Card>
 
           <div className="mt-5 flex gap-1 border-b border-slate-200">
-            {(['cv', 'cover'] as Tab[]).map((t) => (
+            {(['cv', 'cover', 'prep'] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -374,7 +424,7 @@ export function ApplicationPage() {
                     : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
-                {t === 'cv' ? 'CV' : 'Cover Letter'}
+                {t === 'cv' ? 'CV' : t === 'cover' ? 'Cover Letter' : 'Interview Prep'}
               </button>
             ))}
           </div>
@@ -421,7 +471,7 @@ export function ApplicationPage() {
                 <p className="text-sm text-slate-500">No CV content.</p>
               )}
             </div>
-          ) : (
+          ) : tab === 'cover' ? (
             <div className="mt-4">
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-sm text-slate-500">Edit freely — saving re-renders the DOCX.</p>
@@ -450,6 +500,103 @@ export function ApplicationPage() {
                 onChange={(e) => setCoverDraft(e.target.value)}
                 className="h-[32rem] w-full rounded-lg border border-slate-300 bg-white p-5 text-[15px] leading-relaxed focus:border-slate-500 focus:outline-none"
               />
+            </div>
+          ) : (
+            <div className="mt-4 space-y-4">
+              <Card className="p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Interview preparation</p>
+                    <p className="mt-0.5 text-sm text-slate-500">
+                      Targeted interview questions generated from this job description and your profile.
+                    </p>
+                  </div>
+                  <button
+                    onClick={generateInterviewPrep}
+                    disabled={busy !== null}
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:bg-slate-400"
+                  >
+                    {busy === 'prep' && <Spinner />}
+                    {app.interview_prep ? 'Regenerate prep' : 'Generate prep'}
+                  </button>
+                </div>
+              </Card>
+
+              {app.interview_prep ? (
+                <Card className="space-y-4 p-5">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 uppercase text-slate-600">
+                      {app.interview_prep.source}
+                    </span>
+                    <span>
+                      Generated {new Date(app.interview_prep.generated_at).toLocaleString('en-IE')}
+                    </span>
+                  </div>
+
+                  {app.interview_prep.source_note && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      {app.interview_prep.source_note}
+                    </div>
+                  )}
+
+                  {app.interview_prep.focus_areas.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500">Focus areas</p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {app.interview_prep.focus_areas.map((area) => (
+                          <span key={area} className="rounded-md bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
+                            {area}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {app.interview_prep.tips && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500">Preparation tip</p>
+                      <p className="mt-1 text-sm text-slate-700">{app.interview_prep.tips}</p>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {app.interview_prep.questions.map((q, idx) => (
+                      <div key={`${q.question}-${idx}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-slate-900">Q{idx + 1}. {q.question}</p>
+                          <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium capitalize text-amber-700">
+                            {q.difficulty}
+                          </span>
+                        </div>
+                        {q.why_relevant && (
+                          <p className="mt-1 text-sm text-slate-600">Why it matters: {q.why_relevant}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {app.interview_prep.references.length > 0 && (
+                    <div className="space-y-2 border-t border-slate-100 pt-3">
+                      <p className="text-xs font-medium text-slate-500">External references</p>
+                      {app.interview_prep.references.map((ref, idx) => (
+                        <div key={`${ref.url}-${idx}`} className="rounded-lg border border-slate-200 p-3">
+                          <a
+                            href={ref.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-medium text-slate-800 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+                          >
+                            {ref.title}
+                          </a>
+                          {ref.snippet && <p className="mt-1 text-xs text-slate-600">{ref.snippet}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              ) : (
+                <p className="text-sm text-slate-500">Generate interview prep to get role-specific questions and focus areas.</p>
+              )}
             </div>
           )}
         </div>

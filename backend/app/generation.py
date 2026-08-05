@@ -5,12 +5,13 @@ The model returns structured content; it never controls document formatting.
 """
 
 import logging
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
 from .ai import complete_structured, complete_text
 from .humanize import clean_text, find_tells, reads_monotonous
-from .models import Augmentation, GeneratedCV, Profile
+from .models import Augmentation, GeneratedCV, InterviewPrepData, Profile
 
 log = logging.getLogger(__name__)
 
@@ -124,6 +125,17 @@ Rules:
 - close in one line. No "at your earliest convenience", no "thank you for your time
   and consideration"
 - output the letter body only, starting with the greeting
+"""
+
+
+INTERVIEW_PREP_SYSTEM = """You generate interview preparation tailored to one vacancy and one candidate profile.
+
+Rules:
+- Produce 5 to 7 realistic interview questions for this role and level.
+- Each question must include a short "why relevant" note tied to concrete evidence in the job description.
+- Mix technical and behavioural questions where appropriate.
+- Do not invent candidate experience. Questions can probe gaps, but never claim the candidate has done something.
+- Keep wording concise and practical.
 """
 
 
@@ -251,6 +263,40 @@ def _clean_blocks(text: str) -> str:
     return "\n\n".join(
         clean_text(block) for block in (text or "").replace("\r\n", "\n").split("\n\n") if block.strip()
     )
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def generate_interview_prep(profile: Profile, job: dict, model: str) -> InterviewPrepData:
+    prep = complete_structured(
+        model=model,
+        system=INTERVIEW_PREP_SYSTEM,
+        user=(
+            f"CANDIDATE PROFILE\n{_profile_text(profile)}\n\n"
+            f"TARGET VACANCY\n{_job_text(job)}\n\n"
+            "Return interview prep content with focused, role-specific questions."
+        ),
+        schema_model=InterviewPrepData,
+        max_tokens=2500,
+    )
+
+    prep.questions = [
+        q.model_copy(
+            update={
+                "question": clean_text(q.question),
+                "why_relevant": clean_text(q.why_relevant),
+            }
+        )
+        for q in prep.questions
+        if q.question.strip()
+    ]
+    prep.tips = clean_text(prep.tips)
+    prep.focus_areas = [clean_text(item) for item in prep.focus_areas if item.strip()]
+    prep.generated_at = prep.generated_at or _now()
+    prep.source = "ai"
+    return prep
 
 
 def revise_for_style(letter: str, model: str) -> str:

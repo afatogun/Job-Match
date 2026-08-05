@@ -66,6 +66,30 @@ export function JobFilters({ filters, sources, profiles, onChange }: Props) {
         <option value="30">30+</option>
       </select>
 
+      <select
+        value={filters.salary_min}
+        onChange={(e) => set('salary_min', e.target.value)}
+        className={selectClass}
+      >
+        <option value="">Any min salary</option>
+        <option value="30000">30k+</option>
+        <option value="50000">50k+</option>
+        <option value="70000">70k+</option>
+        <option value="90000">90k+</option>
+      </select>
+
+      <select
+        value={filters.salary_max}
+        onChange={(e) => set('salary_max', e.target.value)}
+        className={selectClass}
+      >
+        <option value="">Any max salary</option>
+        <option value="50000">Up to 50k</option>
+        <option value="70000">Up to 70k</option>
+        <option value="90000">Up to 90k</option>
+        <option value="120000">Up to 120k</option>
+      </select>
+
       {profiles.length > 1 && (
         <select
           value={filters.profile_id}
@@ -88,6 +112,7 @@ export function JobFilters({ filters, sources, profiles, onChange }: Props) {
       >
         <option value="newest">Newest first</option>
         <option value="best">Best match</option>
+        <option value="salary_high">Highest salary</option>
       </select>
     </div>
   )

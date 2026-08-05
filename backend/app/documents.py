@@ -14,6 +14,9 @@ from pathlib import Path
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
 
 from .config import GENERATED_DIR
 from .models import GeneratedCV
@@ -206,6 +209,103 @@ def render_cover_letter_docx(text: str, cv: GeneratedCV, path: Path) -> Path:
 
 class PdfUnavailable(RuntimeError):
     pass
+
+
+def render_cv_pdf_simple(cv: GeneratedCV, path: Path) -> Path:
+    """Render a lightweight ATS-safe PDF without external office tooling."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    c = canvas.Canvas(str(path), pagesize=A4)
+    width, height = A4
+    x = 20 * mm
+    y = height - 20 * mm
+    max_width = width - (2 * x)
+
+    def new_page() -> None:
+        nonlocal y
+        c.showPage()
+        y = height - 20 * mm
+
+    def ensure_space(lines: int = 1) -> None:
+        nonlocal y
+        needed = lines * 5 * mm
+        if y - needed < 20 * mm:
+            new_page()
+
+    def write_line(text: str, size: int = 10, bold: bool = False, gap_mm: float = 4.0) -> None:
+        nonlocal y
+        ensure_space(1)
+        font = "Helvetica-Bold" if bold else "Helvetica"
+        c.setFont(font, size)
+        c.drawString(x, y, (text or "").strip())
+        y -= gap_mm * mm
+
+    def write_wrapped(text: str, size: int = 10, bold: bool = False, gap_mm: float = 4.0) -> None:
+        clean = (text or "").strip()
+        if not clean:
+            return
+        font = "Helvetica-Bold" if bold else "Helvetica"
+        c.setFont(font, size)
+        words = clean.split()
+        line = ""
+        for word in words:
+            trial = f"{line} {word}".strip()
+            if c.stringWidth(trial, font, size) <= max_width:
+                line = trial
+                continue
+            write_line(line, size=size, bold=bold, gap_mm=gap_mm)
+            line = word
+        if line:
+            write_line(line, size=size, bold=bold, gap_mm=gap_mm)
+
+    write_wrapped(cv.full_name or "", size=16, bold=True, gap_mm=6)
+    if cv.headline:
+        write_wrapped(cv.headline, size=11, gap_mm=5)
+    if cv.contact:
+        write_wrapped(" | ".join(cv.contact), size=9, gap_mm=6)
+
+    if cv.summary:
+        write_line("PROFESSIONAL SUMMARY", size=10, bold=True, gap_mm=5)
+        write_wrapped(cv.summary, size=10, gap_mm=4)
+        y -= 1 * mm
+
+    if cv.skills:
+        write_line("SKILLS", size=10, bold=True, gap_mm=5)
+        write_wrapped(", ".join(cv.skills), size=10, gap_mm=4)
+        y -= 1 * mm
+
+    if cv.experience:
+        write_line("EXPERIENCE", size=10, bold=True, gap_mm=5)
+        for exp in cv.experience:
+            head = ", ".join(part for part in [exp.role, exp.company] if part)
+            if head:
+                write_wrapped(head, size=11, bold=True, gap_mm=4)
+            meta = " | ".join(part for part in [exp.dates, exp.location] if part)
+            if meta:
+                write_wrapped(meta, size=9, gap_mm=4)
+            for bullet in exp.bullets:
+                write_wrapped(f"- {bullet.text}", size=10, gap_mm=4)
+            y -= 1 * mm
+
+    if cv.projects:
+        write_line("PROJECTS", size=10, bold=True, gap_mm=5)
+        for proj in cv.projects:
+            title = proj.name or "Project"
+            if proj.technologies:
+                title = f"{title} ({', '.join(proj.technologies)})"
+            write_wrapped(title, size=10, bold=True, gap_mm=4)
+            if proj.description:
+                write_wrapped(proj.description, size=10, gap_mm=4)
+            y -= 1 * mm
+
+    if cv.education:
+        write_line("EDUCATION", size=10, bold=True, gap_mm=5)
+        for edu in cv.education:
+            edu_line = ", ".join(part for part in [edu.qualification, edu.institution, edu.year] if part)
+            write_wrapped(edu_line, size=10, gap_mm=4)
+
+    c.save()
+    return path
 
 
 def _convert_with_word(docx_path: Path, pdf_path: Path) -> bool:

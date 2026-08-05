@@ -2,11 +2,18 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 WorkMode = Literal["any", "remote", "hybrid", "onsite"]
 JobStatus = Literal["new", "saved", "generated", "applied", "interview", "rejected"]
 Augmentation = Literal["accurate", "enhanced", "aggressive"]
+ApplicationStage = Literal[
+    "generated",
+    "applied",
+    "interview_stage_1",
+    "offer",
+    "rejected",
+]
 
 JOB_STATUSES: tuple[str, ...] = (
     "new",
@@ -46,6 +53,8 @@ def _clean_list(v: list[str]) -> list[str]:
 class SearchSettings(BaseModel):
     target_titles: list[str] = Field(default_factory=lambda: list(DEFAULT_TITLES))
     target_levels: list[str] = Field(default_factory=list)
+    min_years_experience: int | None = Field(default=None, ge=0, le=30)
+    max_years_experience: int | None = Field(default=None, ge=0, le=40)
     keywords: list[str] = Field(default_factory=list)
     excluded_keywords: list[str] = Field(default_factory=list)
     excluded_title_words: list[str] = Field(default_factory=list)
@@ -62,6 +71,7 @@ class SearchSettings(BaseModel):
     default_augmentation: Augmentation = "enhanced"
     ai_rank_top_n: int = Field(default=25, ge=0, le=200)
     min_score_to_rank: float = Field(default=40.0, ge=0, le=100)
+    enable_external_interview_data: bool = False
 
     @field_validator(
         "target_titles",
@@ -87,6 +97,16 @@ class SearchSettings(BaseModel):
         if model in OPENAI_MODELS:
             return model
         return DEFAULT_MODEL
+
+    @model_validator(mode="after")
+    def _validate_years_range(self):
+        if (
+            self.min_years_experience is not None
+            and self.max_years_experience is not None
+            and self.min_years_experience > self.max_years_experience
+        ):
+            raise ValueError("min_years_experience cannot be greater than max_years_experience")
+        return self
 
 
 class Job(BaseModel):
@@ -277,6 +297,28 @@ class GeneratedCV(BaseModel):
     education: list[CVEducation] = Field(default_factory=list)
 
 
+class InterviewQuestion(BaseModel):
+    question: str
+    why_relevant: str = ""
+    difficulty: Literal["easy", "medium", "hard"] = "medium"
+
+
+class InterviewPrepReference(BaseModel):
+    title: str
+    url: str
+    snippet: str = ""
+
+
+class InterviewPrepData(BaseModel):
+    questions: list[InterviewQuestion] = Field(default_factory=list)
+    tips: str = ""
+    focus_areas: list[str] = Field(default_factory=list)
+    references: list[InterviewPrepReference] = Field(default_factory=list)
+    source_note: str = ""
+    generated_at: str = ""
+    source: Literal["ai", "external", "hybrid"] = "ai"
+
+
 class Application(BaseModel):
     id: int
     job_id: int
@@ -293,9 +335,25 @@ class Application(BaseModel):
     has_cover_letter_docx: bool = False
     model: str | None = None
     profile_id: str | None = None
+    stage: ApplicationStage = "generated"
+    stage_updated_at: str | None = None
+    interview_prep: InterviewPrepData | None = None
     created_at: str
     updated_at: str
     job: Job | None = None
+
+
+APPLICATION_STAGES: tuple[ApplicationStage, ...] = (
+    "generated",
+    "applied",
+    "interview_stage_1",
+    "offer",
+    "rejected",
+)
+
+
+class ApplicationStageUpdate(BaseModel):
+    stage: ApplicationStage
 
 
 class GenerateRequest(BaseModel):

@@ -97,6 +97,10 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("jobs", "matching_terms TEXT"),
     ("jobs", "profile_id TEXT"),
     ("applications", "profile_id TEXT"),
+    ("applications", "stage TEXT DEFAULT 'generated'"),
+    ("applications", "stage_updated_at TEXT"),
+    ("applications", "interview_prep_json TEXT"),
+    ("applications", "interview_prep_generated_at TEXT"),
 ]
 
 

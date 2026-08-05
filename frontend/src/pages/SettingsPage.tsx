@@ -159,6 +159,12 @@ export function SettingsPage() {
           onChange={(v) => update('target_titles', v)}
         />
         <ListField
+          label="Target job levels"
+          hint="Examples: junior, mid. Used by local scoring to strongly down-rank mismatched seniority."
+          value={settings.target_levels}
+          onChange={(v) => update('target_levels', v)}
+        />
+        <ListField
           label="Desired keywords"
           hint="Used for ranking once local scoring lands in step 10."
           value={settings.keywords}
@@ -198,6 +204,39 @@ export function SettingsPage() {
               onChange={(e) => update('max_job_age_days', Number(e.target.value))}
               className={`mt-1.5 ${inputClass}`}
             />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-700">Minimum years experience</label>
+            <input
+              type="number"
+              min={0}
+              max={30}
+              value={settings.min_years_experience ?? ''}
+              onChange={(e) =>
+                update('min_years_experience', e.target.value === '' ? null : Number(e.target.value))
+              }
+              className={`mt-1.5 ${inputClass}`}
+              placeholder="Optional"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-700">Maximum years experience</label>
+            <input
+              type="number"
+              min={0}
+              max={40}
+              value={settings.max_years_experience ?? ''}
+              onChange={(e) =>
+                update('max_years_experience', e.target.value === '' ? null : Number(e.target.value))
+              }
+              className={`mt-1.5 ${inputClass}`}
+              placeholder="Optional"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Helps scoring prefer the experience range you actually want.
+            </p>
           </div>
 
           <div>
@@ -347,6 +386,23 @@ export function SettingsPage() {
               onChange={(v) => update('default_augmentation', v)}
             />
           </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <label className="flex items-start gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={settings.enable_external_interview_data}
+              onChange={(e) => update('enable_external_interview_data', e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-slate-900"
+            />
+            <span>
+              Enable external interview-data lookup (phase-2 optional)
+              <span className="mt-0.5 block text-xs text-slate-500">
+                This only enables future enrichment sources; current interview prep remains AI-generated from your profile and job description.
+              </span>
+            </span>
+          </label>
         </div>
       </Card>
       </>

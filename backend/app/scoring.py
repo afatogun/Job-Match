@@ -16,6 +16,29 @@ SENIOR_WORDS = {"head", "director", "vp", "chief", "principal", "staff", "lead",
 JUNIOR_WORDS = {"intern", "internship", "graduate", "trainee", "apprentice", "placement", "student"}
 MID_SYNONYMS = {"mid", "middle", "medior", "ii", "2"}  # common ways mid-level is written
 
+LEVEL_ALIASES: dict[str, set[str]] = {
+    "junior": {"junior", "jr", "entry", "entry-level", "graduate", "intern", "internship", "trainee"},
+    "mid": {"mid", "middle", "medior", "intermediate", "ii", "2"},
+    "senior": {
+        "senior",
+        "sr",
+        "lead",
+        "principal",
+        "staff",
+        "manager",
+        "head",
+        "director",
+        "vp",
+        "chief",
+    },
+}
+
+YEARS_RANGE_RE = re.compile(
+    r"\b(?P<low>\d{1,2})\s*(?:-|to)\s*(?P<high>\d{1,2})\s*\+?\s*(?:years?|yrs?)\b"
+)
+YEARS_SINGLE_RE = re.compile(r"\b(?P<num>\d{1,2})\s*\+\s*(?:years?|yrs?)\b")
+YEARS_AT_LEAST_RE = re.compile(r"\b(?:at\s+least|minimum\s+of)\s*(?P<num>\d{1,2})\s*(?:years?|yrs?)\b")
+
 WEIGHTS = {
     "title": 45,
     "keywords": 25,
@@ -92,33 +115,113 @@ def _freshness_score(date_posted: str | None, max_age_days: int) -> float:
 
 
 def _seniority_score(title: str, desired_levels: list[str]) -> float:
-    words = _tokens(title)
-    if desired_levels:
-        # Map each desired level to the token set we recognise for it.
-        desired_tokens: set[str] = set()
-        for lv in desired_levels:
-            lv_n = norm_text(lv)
-            desired_tokens.add(lv_n)
-            # Expand well-known aliases so "Senior" matches head/lead/principal etc.
-            if lv_n in ("senior",):
-                desired_tokens |= SENIOR_WORDS
-            elif lv_n in ("junior",):
-                desired_tokens |= JUNIOR_WORDS
-            elif lv_n in ("mid", "middle", "medior"):
-                desired_tokens |= MID_SYNONYMS
-        if words & desired_tokens:
-            return 1.0
-        # Job has a clear level signal but it doesn't match — penalise.
-        all_known = SENIOR_WORDS | JUNIOR_WORDS | MID_SYNONYMS
-        if words & (all_known - desired_tokens):
-            return 0.2
-        return 0.7  # no level signal in title — neutral
-    # No preference: penalise clearly junior/very-senior roles, neutral otherwise.
+    return _seniority_years_score(title, None, desired_levels, None, None)
+
+
+def _normalize_desired_levels(levels: list[str]) -> set[str]:
+    out: set[str] = set()
+    for lv in levels:
+        n = norm_text(lv)
+        if not n:
+            continue
+        if n in LEVEL_ALIASES:
+            out.add(n)
+            continue
+        for canonical, aliases in LEVEL_ALIASES.items():
+            if n in aliases:
+                out.add(canonical)
+                break
+    return out
+
+
+def _infer_level(title: str, description: str | None) -> str | None:
+    words = _tokens(f"{title} {description or ''}")
     if words & JUNIOR_WORDS:
-        return 0.15
+        return "junior"
+    if words & MID_SYNONYMS:
+        return "mid"
     if words & SENIOR_WORDS:
-        return 0.6
-    return 1.0
+        return "senior"
+    for canonical, aliases in LEVEL_ALIASES.items():
+        if words & aliases:
+            return canonical
+    return None
+
+
+def _infer_years_range(title: str, description: str | None) -> tuple[int | None, int | None]:
+    text = norm_text(f"{title} {description or ''}")
+    ranges: list[tuple[int, int]] = []
+
+    for m in YEARS_RANGE_RE.finditer(text):
+        lo = int(m.group("low"))
+        hi = int(m.group("high"))
+        if lo > hi:
+            lo, hi = hi, lo
+        ranges.append((lo, hi))
+
+    for m in YEARS_SINGLE_RE.finditer(text):
+        lo = int(m.group("num"))
+        ranges.append((lo, lo + 8))
+
+    for m in YEARS_AT_LEAST_RE.finditer(text):
+        lo = int(m.group("num"))
+        ranges.append((lo, lo + 8))
+
+    if ranges:
+        return min(lo for lo, _ in ranges), max(hi for _, hi in ranges)
+
+    inferred_level = _infer_level(title, description)
+    if inferred_level == "junior":
+        return (0, 3)
+    if inferred_level == "mid":
+        return (2, 6)
+    if inferred_level == "senior":
+        return (5, 15)
+    return (None, None)
+
+
+def _ranges_overlap(a_min: int, a_max: int, b_min: int, b_max: int) -> bool:
+    return a_min <= b_max and b_min <= a_max
+
+
+def _seniority_years_score(
+    title: str,
+    description: str | None,
+    desired_levels: list[str],
+    min_years_pref: int | None,
+    max_years_pref: int | None,
+) -> float:
+    inferred_level = _infer_level(title, description)
+    wanted_levels = _normalize_desired_levels(desired_levels)
+
+    if wanted_levels:
+        if inferred_level and inferred_level in wanted_levels:
+            level_score = 1.0
+        elif inferred_level and inferred_level not in wanted_levels:
+            # Strong soft-penalty: visible but pushed down when level is clearly off-target.
+            level_score = 0.25
+        else:
+            level_score = 0.7
+    else:
+        level_score = 1.0
+
+    pref_min = min_years_pref
+    pref_max = max_years_pref
+    years_min, years_max = _infer_years_range(title, description)
+    if pref_min is None and pref_max is None:
+        return level_score
+    if pref_min is None:
+        pref_min = 0
+    if pref_max is None:
+        pref_max = 40
+
+    if years_min is not None and years_max is not None:
+        if _ranges_overlap(years_min, years_max, pref_min, pref_max):
+            return min(1.0, level_score + 0.05)
+        return level_score * 0.35
+
+    # We do not know the years range: keep result soft-penalized rather than excluded.
+    return level_score * 0.85
 
 
 def score_job(job: RawJob, settings: SearchSettings) -> float:
@@ -128,7 +231,13 @@ def score_job(job: RawJob, settings: SearchSettings) -> float:
         "keywords": _keyword_score(job, settings.keywords),
         "location": _location_score(job, settings),
         "freshness": _freshness_score(job.date_posted, settings.max_job_age_days),
-        "seniority": _seniority_score(job.title, settings.target_levels),
+        "seniority": _seniority_years_score(
+            job.title,
+            job.description,
+            settings.target_levels,
+            settings.min_years_experience,
+            settings.max_years_experience,
+        ),
     }
     total = sum(parts[k] * WEIGHTS[k] for k in WEIGHTS)
     return round(min(100.0, max(0.0, total)), 1)
