@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Query
 
+from ..maintenance import cleanup_storage
 from ..models import SearchSettings
 from ..settings_store import load_settings, save_settings
 from ..sources.registry import SOURCE_LABELS
@@ -27,3 +28,8 @@ def write_settings(settings: SearchSettings) -> SearchSettings:
 @router.get("/sources")
 def available_sources() -> list[dict[str, str]]:
     return [{"name": name, "label": label} for name, label in SOURCE_LABELS.items()]
+
+
+@router.post("/maintenance/cleanup")
+def run_storage_cleanup() -> dict[str, int | bool]:
+    return cleanup_storage()

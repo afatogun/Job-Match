@@ -154,47 +154,13 @@ export function SettingsPage() {
 
         <ListField
           label="Target job titles"
-          hint="Each title becomes its own search. Levels below are prepended to each title automatically."
+          hint="Each title runs as its own search against every enabled source."
           value={settings.target_titles}
           onChange={(v) => update('target_titles', v)}
         />
-
-        <div>
-          <label className="text-sm font-medium text-slate-700">Seniority levels</label>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Selected levels are searched as prefixes ("Senior Software Engineer", "Junior Software Engineer", etc.) alongside the base title. Leave all unselected to search without a level prefix.
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {['Junior', 'Mid', 'Senior', 'Lead', 'Principal', 'Staff', 'Director'].map((lv) => {
-              const active = settings.target_levels.includes(lv)
-              return (
-                <button
-                  key={lv}
-                  type="button"
-                  onClick={() =>
-                    update(
-                      'target_levels',
-                      active
-                        ? settings.target_levels.filter((l) => l !== lv)
-                        : [...settings.target_levels, lv],
-                    )
-                  }
-                  className={`rounded-full px-3 py-1 text-sm font-medium transition ${
-                    active
-                      ? 'bg-slate-900 text-white'
-                      : 'border border-slate-300 text-slate-600 hover:border-slate-500'
-                  }`}
-                >
-                  {lv}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
         <ListField
           label="Desired keywords"
-          hint="Boosts relevance score (up to 25%) for jobs that mention these — not a strict filter. Useful for specifying technologies or domains (e.g. React, Python, analytical chemistry). The AI ranking layer then checks full profile fit independently."
+          hint="Used for ranking once local scoring lands in step 10."
           value={settings.keywords}
           onChange={(v) => update('keywords', v)}
         />

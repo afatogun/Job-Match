@@ -15,9 +15,15 @@ import type {
   Stats,
 } from './types'
 
+function resolveUrl(path: string): string {
+  const base = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+  if (!base) return path.startsWith('/') ? path : `/${path}`
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isForm = init?.body instanceof FormData
-  const res = await fetch(path, {
+  const res = await fetch(resolveUrl(path), {
     ...init,
     headers: {
       ...(isForm ? {} : { 'Content-Type': 'application/json' }),
@@ -141,7 +147,7 @@ export const api = {
       body: JSON.stringify({ cover_letter_text: text }),
     }),
 
-  downloadUrl: (jobId: number, filename: string) => `/api/jobs/${jobId}/download/${filename}`,
+  downloadUrl: (jobId: number, filename: string) => resolveUrl(`/api/jobs/${jobId}/download/${filename}`),
 
   bulkGenerate: (jobIds: number[], augmentation?: Augmentation) =>
     request<GenerationStatus>('/api/generate/bulk', {

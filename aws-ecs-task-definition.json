@@ -1,0 +1,61 @@
+{
+  "family": "jobmatch-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "REPLACE_WITH_ECS_EXECUTION_ROLE_ARN",
+  "taskRoleArn": "REPLACE_WITH_ECS_TASK_ROLE_ARN",
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "REPLACE_WITH_ECR_IMAGE_URI",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "hostPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "OPENAI_API_KEY",
+          "value": "REPLACE_WITH_SECRET_OR_VALUE"
+        },
+        {
+          "name": "JOBMATCH_DATA_DIR",
+          "value": "/data"
+        },
+        {
+          "name": "ALLOWED_ORIGINS",
+          "value": "https://your-frontend-domain.example"
+        }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "jobmatch-data",
+          "containerPath": "/data",
+          "readOnly": false
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/jobmatch-backend",
+          "awslogs-region": "REPLACE_WITH_REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ],
+  "volumes": [
+    {
+      "name": "jobmatch-data",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "REPLACE_WITH_EFS_FILESYSTEM_ID",
+        "rootDirectory": "/"
+      }
+    }
+  ]
+}
