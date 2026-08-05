@@ -212,97 +212,168 @@ class PdfUnavailable(RuntimeError):
 
 
 def render_cv_pdf_simple(cv: GeneratedCV, path: Path) -> Path:
-    """Render a lightweight ATS-safe PDF without external office tooling."""
+    """Render a styled ATS-safe PDF without external office tooling.
+
+    This fallback intentionally mirrors the DOCX hierarchy and spacing so
+    hosted output stays visually consistent when Word/LibreOffice is absent.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
 
     c = canvas.Canvas(str(path), pagesize=A4)
     width, height = A4
-    x = 20 * mm
-    y = height - 20 * mm
-    max_width = width - (2 * x)
+
+    left = 18 * mm
+    right = width - (18 * mm)
+    top = height - (17 * mm)
+    bottom = 18 * mm
+    usable_width = right - left
+
+    text_color = (0, 0, 0)
+    accent_color = (0.12, 0.16, 0.22)
+    muted_color = (0.33, 0.37, 0.43)
+    rule_color = (0.62, 0.64, 0.69)
+
+    y = top
+
+    def set_rgb(rgb: tuple[float, float, float]) -> None:
+        c.setFillColorRGB(*rgb)
+
+    def set_stroke_rgb(rgb: tuple[float, float, float]) -> None:
+        c.setStrokeColorRGB(*rgb)
 
     def new_page() -> None:
         nonlocal y
         c.showPage()
-        y = height - 20 * mm
+        y = top
 
-    def ensure_space(lines: int = 1) -> None:
+    def ensure_space(height_mm: float) -> None:
         nonlocal y
-        needed = lines * 5 * mm
-        if y - needed < 20 * mm:
+        if y - (height_mm * mm) < bottom:
             new_page()
 
-    def write_line(text: str, size: int = 10, bold: bool = False, gap_mm: float = 4.0) -> None:
-        nonlocal y
-        ensure_space(1)
-        font = "Helvetica-Bold" if bold else "Helvetica"
-        c.setFont(font, size)
-        c.drawString(x, y, (text or "").strip())
-        y -= gap_mm * mm
-
-    def write_wrapped(text: str, size: int = 10, bold: bool = False, gap_mm: float = 4.0) -> None:
+    def wrap_lines(text: str, font: str, size: int, max_width: float) -> list[str]:
         clean = (text or "").strip()
         if not clean:
-            return
-        font = "Helvetica-Bold" if bold else "Helvetica"
-        c.setFont(font, size)
+            return []
         words = clean.split()
+        lines: list[str] = []
         line = ""
         for word in words:
             trial = f"{line} {word}".strip()
             if c.stringWidth(trial, font, size) <= max_width:
                 line = trial
-                continue
-            write_line(line, size=size, bold=bold, gap_mm=gap_mm)
-            line = word
+            else:
+                if line:
+                    lines.append(line)
+                line = word
         if line:
-            write_line(line, size=size, bold=bold, gap_mm=gap_mm)
+            lines.append(line)
+        return lines
 
-    write_wrapped(cv.full_name or "", size=16, bold=True, gap_mm=6)
+    def draw_wrapped(
+        text: str,
+        *,
+        size: int,
+        font: str = "Helvetica",
+        color: tuple[float, float, float] = text_color,
+        line_height_mm: float = 4.4,
+        indent_mm: float = 0.0,
+        hanging_mm: float = 0.0,
+    ) -> None:
+        nonlocal y
+        max_width = usable_width - ((indent_mm + hanging_mm) * mm)
+        lines = wrap_lines(text, font, size, max_width)
+        if not lines:
+            return
+        ensure_space(len(lines) * line_height_mm + 1.2)
+        set_rgb(color)
+        c.setFont(font, size)
+        x = left + (indent_mm * mm)
+        for idx, line in enumerate(lines):
+            x_line = x + ((hanging_mm * mm) if idx > 0 else 0)
+            c.drawString(x_line, y, line)
+            y -= line_height_mm * mm
+
+    def draw_centered(
+        text: str,
+        *,
+        size: int,
+        font: str = "Helvetica",
+        color: tuple[float, float, float] = text_color,
+        gap_mm: float = 4.0,
+    ) -> None:
+        nonlocal y
+        clean = (text or "").strip()
+        if not clean:
+            return
+        ensure_space(gap_mm + 1)
+        set_rgb(color)
+        c.setFont(font, size)
+        text_width = c.stringWidth(clean, font, size)
+        x = left + max(0, (usable_width - text_width) / 2)
+        c.drawString(x, y, clean)
+        y -= gap_mm * mm
+
+    def section_title(text: str) -> None:
+        nonlocal y
+        clean = (text or "").strip().upper()
+        if not clean:
+            return
+        ensure_space(9)
+        set_rgb(accent_color)
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(left, y, clean)
+        y_rule = y - (1.7 * mm)
+        set_stroke_rgb(rule_color)
+        c.setLineWidth(0.7)
+        c.line(left, y_rule, right, y_rule)
+        y -= 5.5 * mm
+
+    draw_centered(cv.full_name or "", size=19, font="Helvetica-Bold", color=accent_color, gap_mm=6.2)
     if cv.headline:
-        write_wrapped(cv.headline, size=11, gap_mm=5)
+        draw_centered(cv.headline, size=11, color=muted_color, gap_mm=4.7)
     if cv.contact:
-        write_wrapped(" | ".join(cv.contact), size=9, gap_mm=6)
+        draw_centered(" | ".join(cv.contact), size=9, color=muted_color, gap_mm=6.0)
 
     if cv.summary:
-        write_line("PROFESSIONAL SUMMARY", size=10, bold=True, gap_mm=5)
-        write_wrapped(cv.summary, size=10, gap_mm=4)
-        y -= 1 * mm
+        section_title("Professional Summary")
+        draw_wrapped(cv.summary, size=10, line_height_mm=4.5)
+        y -= 1.1 * mm
 
     if cv.skills:
-        write_line("SKILLS", size=10, bold=True, gap_mm=5)
-        write_wrapped(", ".join(cv.skills), size=10, gap_mm=4)
-        y -= 1 * mm
+        section_title("Skills")
+        draw_wrapped(", ".join(cv.skills), size=10, line_height_mm=4.5)
+        y -= 1.1 * mm
 
     if cv.experience:
-        write_line("EXPERIENCE", size=10, bold=True, gap_mm=5)
+        section_title("Experience")
         for exp in cv.experience:
-            head = ", ".join(part for part in [exp.role, exp.company] if part)
-            if head:
-                write_wrapped(head, size=11, bold=True, gap_mm=4)
+            header = ", ".join(part for part in [exp.role, exp.company] if part)
+            if header:
+                draw_wrapped(header, size=11, font="Helvetica-Bold", color=accent_color, line_height_mm=4.8)
             meta = " | ".join(part for part in [exp.dates, exp.location] if part)
             if meta:
-                write_wrapped(meta, size=9, gap_mm=4)
+                draw_wrapped(meta, size=9, color=muted_color, line_height_mm=4.2)
             for bullet in exp.bullets:
-                write_wrapped(f"- {bullet.text}", size=10, gap_mm=4)
-            y -= 1 * mm
+                draw_wrapped(f"- {bullet.text}", size=10, line_height_mm=4.4, indent_mm=1.0, hanging_mm=3.0)
+            y -= 1.0 * mm
 
     if cv.projects:
-        write_line("PROJECTS", size=10, bold=True, gap_mm=5)
+        section_title("Projects")
         for proj in cv.projects:
             title = proj.name or "Project"
             if proj.technologies:
                 title = f"{title} ({', '.join(proj.technologies)})"
-            write_wrapped(title, size=10, bold=True, gap_mm=4)
+            draw_wrapped(title, size=10, font="Helvetica-Bold", color=accent_color, line_height_mm=4.5)
             if proj.description:
-                write_wrapped(proj.description, size=10, gap_mm=4)
-            y -= 1 * mm
+                draw_wrapped(proj.description, size=10, line_height_mm=4.4)
+            y -= 0.8 * mm
 
     if cv.education:
-        write_line("EDUCATION", size=10, bold=True, gap_mm=5)
+        section_title("Education")
         for edu in cv.education:
-            edu_line = ", ".join(part for part in [edu.qualification, edu.institution, edu.year] if part)
-            write_wrapped(edu_line, size=10, gap_mm=4)
+            line = ", ".join(part for part in [edu.qualification, edu.institution, edu.year] if part)
+            draw_wrapped(line, size=10, line_height_mm=4.4)
 
     c.save()
     return path
