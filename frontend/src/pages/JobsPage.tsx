@@ -50,6 +50,7 @@ export function JobsPage() {
 
   const refreshPoll = useRef<number | null>(null)
   const genPoll = useRef<number | null>(null)
+  const activeProfile = profiles.find((p) => p.is_active) ?? null
 
   const loadJobs = useCallback(async (current: JobFilterState) => {
     try {
@@ -122,15 +123,9 @@ export function JobsPage() {
     }, 2000)
   }, [filters, loadJobs])
 
-  // Pick up runs already in flight (e.g. after a page reload).
+  // Pick up generation runs already in flight (e.g. after a page reload).
+  // Job discovery refresh is intentionally manual-only.
   useEffect(() => {
-    api
-      .getRefreshStatus()
-      .then((s) => {
-        setRefresh(s)
-        if (s.running) startRefreshPoll()
-      })
-      .catch(() => undefined)
     api
       .getGenerationStatus()
       .then((s) => {
@@ -144,6 +139,25 @@ export function JobsPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const handleActivateProfile = async (profileId: string) => {
+    if (!profileId || profileId === activeProfile?.id) return
+    setError(null)
+    try {
+      const updatedProfiles = await api.activateProfile(profileId)
+      setProfiles(updatedProfiles)
+      setFilters((prev) => ({ ...prev, profile_id: profileId }))
+      try {
+        const settings = await api.getSettings(profileId)
+        setAugmentation(settings.default_augmentation)
+      } catch {
+        // Keep previous augmentation if profile settings are unavailable.
+      }
+      await loadJobs({ ...filters, profile_id: profileId })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not switch active profile')
+    }
+  }
 
   const handleRefresh = async () => {
     setError(null)
@@ -200,11 +214,35 @@ export function JobsPage() {
             Live vacancies in Ireland, linked to their genuine application pages.
           </p>
         </div>
-        {stats?.last_refresh_at && (
-          <p className="text-xs text-slate-400">
-            Last refreshed {new Date(stats.last_refresh_at).toLocaleString('en-IE')}
-          </p>
-        )}
+        <div className="flex flex-col items-end gap-1.5">
+          {profiles.length > 0 && (
+            <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 shadow-sm">
+              <span className="font-medium text-slate-700">Active profile:</span>
+              <span className="max-w-[180px] truncate font-semibold text-slate-900">
+                {activeProfile?.name ?? 'Unknown'}
+              </span>
+              {profiles.length > 1 && (
+                <select
+                  value={activeProfile?.id ?? ''}
+                  onChange={(e) => void handleActivateProfile(e.target.value)}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-slate-500 focus:outline-none"
+                  aria-label="Switch active profile"
+                >
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+          {stats?.last_refresh_at && (
+            <p className="text-xs text-slate-400">
+              Last refreshed {new Date(stats.last_refresh_at).toLocaleString('en-IE')}
+            </p>
+          )}
+        </div>
       </div>
 
       <StatsBar stats={stats} />
