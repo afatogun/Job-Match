@@ -60,6 +60,33 @@ export function Placeholder({ title, step }: { title: string; step: string }) {
   )
 }
 
+export function ScoreBadge({ score, isAi }: { score: number | null; isAi?: boolean }) {
+  if (score === null) {
+    return (
+      <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-slate-100 text-[11px] font-medium text-slate-400">
+        —
+      </div>
+    )
+  }
+  const tone =
+    score >= 70
+      ? 'bg-emerald-50 text-emerald-700'
+      : score >= 45
+        ? 'bg-amber-50 text-amber-700'
+        : 'bg-slate-100 text-slate-600'
+  return (
+    <div
+      className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${tone}`}
+      title={isAi ? 'AI match score' : 'Local relevance score (not yet AI-ranked)'}
+    >
+      <span className="text-sm font-semibold leading-none">{Math.round(score)}</span>
+      <span className="mt-0.5 text-[8px] font-medium uppercase tracking-wide opacity-70">
+        {isAi ? 'AI' : 'local'}
+      </span>
+    </div>
+  )
+}
+
 export function Spinner({ className = '' }: { className?: string }) {
   return (
     <svg className={`h-4 w-4 animate-spin ${className}`} viewBox="0 0 24 24" fill="none" aria-hidden="true">

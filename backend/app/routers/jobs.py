@@ -1,5 +1,6 @@
 """Job listing, detail, status, refresh and dashboard stats."""
 
+import json
 from datetime import date, timedelta
 from typing import Literal
 
@@ -13,16 +14,37 @@ router = APIRouter(prefix="/api", tags=["jobs"])
 
 GOOD_MATCH_THRESHOLD = 70.0
 
-_JOB_COLUMNS = """
+# The score shown and sorted on: AI when we have it, local otherwise.
+DISPLAY_SCORE = "COALESCE(ai_score, local_score)"
+
+_JOB_COLUMNS = f"""
     id, source, source_job_id, title, company, location, is_remote, job_url,
     job_url_direct, date_posted, job_type, salary_min, salary_max, salary_currency,
-    salary_interval, status, relevance_score, first_seen_at, last_seen_at
+    salary_interval, status, local_score, ai_score, ai_reason, ai_matching_skills,
+    ai_missing_skills, ai_seniority_fit, ai_ranked_at, matching_terms,
+    first_seen_at, last_seen_at,
+    {DISPLAY_SCORE} AS relevance_score,
+    EXISTS(SELECT 1 FROM applications a WHERE a.job_id = jobs.id) AS has_application
 """
 
 
-def _to_job(row, include_description: bool = False) -> Job:
+def _json_list(value) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (ValueError, TypeError):
+        return []
+    return [str(x) for x in parsed] if isinstance(parsed, list) else []
+
+
+def row_to_job(row, include_description: bool = False) -> Job:
     data = dict(row)
     data["is_remote"] = None if data.get("is_remote") is None else bool(data["is_remote"])
+    data["has_application"] = bool(data.get("has_application"))
+    data["ai_matching_skills"] = _json_list(data.get("ai_matching_skills"))
+    data["ai_missing_skills"] = _json_list(data.get("ai_missing_skills"))
+    data["matching_terms"] = _json_list(data.get("matching_terms"))
     if not include_description:
         data["description"] = None
     return Job.model_validate(data)
@@ -58,13 +80,12 @@ def list_jobs(
         where.append("(date_posted IS NULL OR date_posted >= ?)")
         params.append(cutoff)
     if min_score is not None:
-        where.append("relevance_score >= ?")
+        where.append(f"{DISPLAY_SCORE} >= ?")
         params.append(min_score)
 
     clause = f"WHERE {' AND '.join(where)}" if where else ""
-    # Scores are NULL until step 10, so 'best' still needs a stable secondary key.
     order = (
-        "ORDER BY relevance_score DESC NULLS LAST, date_posted DESC NULLS LAST, id DESC"
+        f"ORDER BY {DISPLAY_SCORE} DESC NULLS LAST, date_posted DESC NULLS LAST, id DESC"
         if sort == "best"
         else "ORDER BY date_posted DESC NULLS LAST, id DESC"
     )
@@ -77,7 +98,7 @@ def list_jobs(
         ).fetchall()
 
     return JobListResponse(
-        items=[_to_job(r) for r in rows], total=total, limit=limit, offset=offset
+        items=[row_to_job(r) for r in rows], total=total, limit=limit, offset=offset
     )
 
 
@@ -103,7 +124,7 @@ def get_job(job_id: int) -> Job:
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    return _to_job(row, include_description=True)
+    return row_to_job(row, include_description=True)
 
 
 @router.patch("/jobs/{job_id}", response_model=Job)
@@ -115,30 +136,28 @@ def update_status(job_id: int, payload: StatusUpdate) -> Job:
         row = conn.execute(
             f"SELECT {_JOB_COLUMNS}, description FROM jobs WHERE id = ?", (job_id,)
         ).fetchone()
-    return _to_job(row, include_description=True)
+    return row_to_job(row, include_description=True)
 
 
 @router.get("/stats", response_model=Stats)
 def stats() -> Stats:
     with connect() as conn:
         row = conn.execute(
-            """
+            f"""
             SELECT COUNT(*) AS total,
                    COALESCE(SUM(status = 'new'), 0) AS new_jobs,
-                   COALESCE(SUM(relevance_score >= ?), 0) AS good_matches,
-                   COALESCE(SUM(status = 'generated'), 0) AS generated
+                   COALESCE(SUM({DISPLAY_SCORE} >= ?), 0) AS good_matches
               FROM jobs
             """,
             (GOOD_MATCH_THRESHOLD,),
         ).fetchone()
-        last = conn.execute(
-            "SELECT MAX(finished_at) AS last FROM refresh_runs"
-        ).fetchone()
+        generated = conn.execute("SELECT COUNT(*) AS n FROM applications").fetchone()["n"]
+        last = conn.execute("SELECT MAX(finished_at) AS last FROM refresh_runs").fetchone()
 
     return Stats(
         total_jobs=row["total"],
         new_jobs=row["new_jobs"],
         good_matches=row["good_matches"],
-        generated_applications=row["generated"],
+        generated_applications=generated,
         last_refresh_at=last["last"] if last else None,
     )

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api'
+import { AugmentationPicker } from '../components/AugmentationPicker'
 import { Card } from '../components/ui'
 import type { SearchSettings, SourceInfo, WorkMode } from '../types'
 
@@ -216,7 +217,9 @@ export function SettingsPage() {
             ))}
           </div>
           <p className="mt-1.5 text-xs text-slate-500">
-            Glassdoor, JobsIreland and LinkedIn are added in later steps.
+            LinkedIn rate-limits aggressively without proxies and will often return nothing; its
+            failures never block the other sources. JobsIreland only exposes its most recent
+            vacancies to non-browser clients, so it contributes little for technical roles.
           </p>
         </div>
 
@@ -233,12 +236,72 @@ export function SettingsPage() {
         </div>
       </Card>
 
+      <Card className="space-y-5 p-6">
+        <h2 className="text-sm font-semibold text-slate-900">AI</h2>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="text-sm font-medium text-slate-700">Model</label>
+            <input
+              value={settings.openai_model}
+              onChange={(e) => update('openai_model', e.target.value)}
+              className={`mt-1.5 ${inputClass}`}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Used for CV parsing, ranking and generation.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-700">Jobs to AI-rank per refresh</label>
+            <input
+              type="number"
+              min={0}
+              max={200}
+              value={settings.ai_rank_top_n}
+              onChange={(e) => update('ai_rank_top_n', Number(e.target.value))}
+              className={`mt-1.5 ${inputClass}`}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Ranked in batches, best local scores first. 0 disables AI ranking.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-700">Minimum local score to rank</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={settings.min_score_to_rank}
+              onChange={(e) => update('min_score_to_rank', Number(e.target.value))}
+              className={`mt-1.5 ${inputClass}`}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Stops tokens being spent on obviously irrelevant jobs.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium text-slate-700">Default augmentation level</label>
+          <p className="mt-0.5 text-xs text-slate-500">
+            How far generation may go beyond your profile. Overridable per job.
+          </p>
+          <div className="mt-2">
+            <AugmentationPicker
+              value={settings.default_augmentation}
+              onChange={(v) => update('default_augmentation', v)}
+            />
+          </div>
+        </div>
+      </Card>
+
       <Card className="space-y-3 p-6">
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">OpenAI</h2>
+          <h2 className="text-sm font-semibold text-slate-900">OpenAI API key</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Stored in <code className="rounded bg-slate-100 px-1">.env</code>. Not used yet — AI ranking and
-            document generation start at step 13.
+            Stored in <code className="rounded bg-slate-100 px-1">.env</code>, which is gitignored.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

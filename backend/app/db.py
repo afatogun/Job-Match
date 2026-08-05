@@ -56,7 +56,39 @@ CREATE TABLE IF NOT EXISTS refresh_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_refresh_runs_started ON refresh_runs(started_at DESC);
+
+-- One generated application pack per job.
+CREATE TABLE IF NOT EXISTS applications (
+    id                INTEGER PRIMARY KEY,
+    job_id            INTEGER NOT NULL UNIQUE REFERENCES jobs(id) ON DELETE CASCADE,
+    augmentation      TEXT NOT NULL DEFAULT 'enhanced',
+    cv_json           TEXT,
+    cover_letter_text TEXT,
+    flagged_additions TEXT,
+    folder            TEXT,
+    cv_docx           TEXT,
+    cv_pdf            TEXT,
+    cover_letter_docx TEXT,
+    model             TEXT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
 """
+
+# Columns added after the first release. Applied idempotently on startup so an
+# existing jobmatch.db keeps its data.
+MIGRATIONS: list[tuple[str, str]] = [
+    ("jobs", "local_score REAL"),
+    ("jobs", "ai_score REAL"),
+    ("jobs", "ai_reason TEXT"),
+    ("jobs", "ai_matching_skills TEXT"),
+    ("jobs", "ai_missing_skills TEXT"),
+    ("jobs", "ai_seniority_fit TEXT"),
+    ("jobs", "ai_ranked_at TEXT"),
+    ("jobs", "matching_terms TEXT"),
+]
 
 
 def connect() -> sqlite3.Connection:
@@ -64,10 +96,20 @@ def connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    for table, column_def in MIGRATIONS:
+        column = column_def.split()[0]
+        existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_def}")
 
 
 def init_db() -> None:
     ensure_dirs()
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _apply_migrations(conn)

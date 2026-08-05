@@ -1,4 +1,4 @@
-"""Refresh orchestration: collect -> normalise -> filter -> dedup -> store.
+"""Refresh orchestration: collect -> normalise -> filter -> score -> dedup -> store -> rank.
 
 Runs on a FastAPI background task with an in-memory status the UI polls.
 No worker/queue infrastructure.
@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from .db import connect
 from .models import RefreshError, RefreshStatus, SearchSettings
 from .normalise import content_key, dedup_key, norm_text
+from .scoring import matching_terms, score_job
 from .settings_store import load_settings
 from .sources.base import RawJob
 from .sources.registry import get_source, label_for
@@ -64,7 +65,7 @@ def _now() -> str:
 def is_excluded(job: RawJob, settings: SearchSettings) -> str | None:
     """The brief's 'reject obviously irrelevant jobs' - explicit exclusions only.
 
-    Scored relevance is a later step; this stage is deliberately dumb.
+    Scored relevance is handled separately; this stage is deliberately dumb.
     """
     title = norm_text(job.title)
     for word in settings.excluded_title_words:
@@ -86,7 +87,7 @@ def is_excluded(job: RawJob, settings: SearchSettings) -> str | None:
     return None
 
 
-def _store(conn, job: RawJob, dkey: str, ckey: str) -> str:
+def _store(conn, job: RawJob, dkey: str, ckey: str, score: float, terms: list[str]) -> str:
     """-> 'inserted' | 'updated'. Existing rows are refreshed, never duplicated."""
     now = _now()
 
@@ -104,12 +105,14 @@ def _store(conn, job: RawJob, dkey: str, ckey: str) -> str:
         conn.execute(
             """
             UPDATE jobs
-               SET last_seen_at = ?,
-                   description  = COALESCE(NULLIF(description, ''), ?),
-                   job_url_direct = COALESCE(job_url_direct, ?)
+               SET last_seen_at   = ?,
+                   description    = COALESCE(NULLIF(description, ''), ?),
+                   job_url_direct = COALESCE(job_url_direct, ?),
+                   local_score    = ?,
+                   matching_terms = ?
              WHERE id = ?
             """,
-            (now, job.description, job.job_url_direct, row["id"]),
+            (now, job.description, job.job_url_direct, score, json.dumps(terms), row["id"]),
         )
         return "updated"
 
@@ -119,8 +122,9 @@ def _store(conn, job: RawJob, dkey: str, ckey: str) -> str:
             dedup_key, content_key, source, source_job_id, title, company, location,
             is_remote, job_url, job_url_direct, date_posted, job_type,
             salary_min, salary_max, salary_currency, salary_interval,
-            description, status, first_seen_at, last_seen_at, raw_json
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?)
+            description, status, local_score, matching_terms,
+            first_seen_at, last_seen_at, raw_json
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?)
         """,
         (
             dkey,
@@ -140,6 +144,8 @@ def _store(conn, job: RawJob, dkey: str, ckey: str) -> str:
             job.salary_currency,
             job.salary_interval,
             job.description,
+            score,
+            json.dumps(terms),
             now,
             now,
             json.dumps(job.raw, default=str),
@@ -211,8 +217,11 @@ def run_refresh() -> None:
                             continue  # duplicate within this run's own results
                         seen_this_run.add(dkey)
 
+                        score = score_job(job, settings)
+                        terms = matching_terms(job, settings)
+
                         try:
-                            if _store(conn, job, dkey, ckey) == "inserted":
+                            if _store(conn, job, dkey, ckey, score, terms) == "inserted":
                                 inserted += 1
                             else:
                                 updated += 1
@@ -230,6 +239,8 @@ def run_refresh() -> None:
                     _record_run(conn, run_id, started, source_name, term, False, 0, 0, result.error)
 
             _bump(completed=1)
+
+        _rank_with_ai(settings)
     except Exception as exc:  # noqa: BLE001 - never leave the UI stuck on "running"
         log.exception("Refresh run failed")
         with _lock:
@@ -237,3 +248,22 @@ def run_refresh() -> None:
     finally:
         _update(running=False, finished_at=_now(), current=None)
         log.info("Refresh %s complete", run_id)
+
+
+def _rank_with_ai(settings: SearchSettings) -> None:
+    """Best-effort AI ranking of the strongest unranked jobs. Never fails a refresh."""
+    if settings.ai_rank_top_n <= 0:
+        return
+
+    from .ranking import rank_pending_jobs  # local import: keeps refresh usable without a key
+
+    try:
+        _update(current="Ranking best matches with AI...")
+        ranked = rank_pending_jobs(settings)
+        _bump(ranked=ranked)
+    except Exception as exc:  # noqa: BLE001 - discovery must still succeed
+        log.warning("AI ranking skipped: %s", exc)
+        with _lock:
+            _status.errors.append(
+                RefreshError(source="openai", search_term="ranking", error=str(exc))
+            )

@@ -55,6 +55,17 @@ export function JobFilters({ filters, sources, onChange }: Props) {
       </select>
 
       <select
+        value={filters.min_score}
+        onChange={(e) => set('min_score', e.target.value)}
+        className={selectClass}
+      >
+        <option value="">Any score</option>
+        <option value="70">70+ (good match)</option>
+        <option value="50">50+</option>
+        <option value="30">30+</option>
+      </select>
+
+      <select
         value={filters.sort}
         onChange={(e) => set('sort', e.target.value as JobFilterState['sort'])}
         className={selectClass}

@@ -1,15 +1,18 @@
 # JobMatch Local
 
-A single-user local app for discovering genuine job vacancies in Ireland and (later)
-generating tailored CVs and cover letters.
+A single-user local app for discovering genuine job vacancies in Ireland and generating
+tailored CVs and cover letters for the ones worth applying to.
 
-**Current status — development steps 1–6 complete.** Job discovery works end to end
-against Indeed Ireland. Profile parsing, AI ranking and document generation are not built yet.
+**Status - all 20 development steps built.** Job discovery, local + AI ranking, profile
+extraction, augmentation-controlled CV and cover-letter generation, DOCX/PDF export,
+statuses and bulk generation all work end to end.
 
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) (manages Python for you)
 - Node.js 20+
+- An OpenAI API key (only for profile parsing, ranking and generation - job discovery works without one)
+- Microsoft Word **or** LibreOffice, for PDF export. Without either you still get DOCX.
 
 > The backend pins **Python 3.12**. This is not cosmetic: `python-jobspy` hard-pins
 > `numpy==1.26.3`, whose Windows wheels stop at cp312, so it cannot install on 3.13+.
@@ -25,6 +28,10 @@ cd ..\frontend
 npm install
 ```
 
+Put your key in `.env` at the repo root (copy `.env.example`), or paste it into Settings
+in the app, which writes the same file. `.env` is gitignored; **never** put a real key in
+`.env.example`, which is tracked.
+
 ## Run
 
 ```powershell
@@ -38,20 +45,71 @@ cd backend;  uv run uvicorn app.main:app --reload --port 8000
 cd frontend; npm run dev
 ```
 
-Then open **http://localhost:5173**. The API is at http://127.0.0.1:8000 with
-interactive docs at `/docs`.
+Open **http://localhost:5173**. API docs at http://127.0.0.1:8000/docs.
 
 ## Using it
 
-1. **Settings** — set your target job titles, location (default `Ireland`), maximum job
-   age, and work arrangement. Save.
-2. **Jobs** — press **Find New Jobs**. Each target title is searched against every enabled
-   source; progress is shown live.
-3. Click a job to read the full description, or **Open Original Job** to go straight to the
-   genuine posting on the source site.
-4. Set a status on any job (New / Saved / Generated / Applied / Interview / Rejected).
+1. **Profile** - upload your master CV (PDF, DOCX or TXT). Text is extracted locally, then
+   structured by OpenAI. **Review and correct it.** Everything generated later is built
+   from this, so errors here propagate. Add anything your CV omits under Extras - especially
+   real metrics, which are what make strong CV bullets possible.
+2. **Settings** - target titles, location, job age, work arrangement, excluded terms,
+   model, and your default augmentation level.
+3. **Jobs** - press **Find New Jobs**. Each target title is searched against every enabled
+   source, scored locally, then the strongest are ranked by AI against your profile.
+4. Open a job for the full description, matching skills, gaps and seniority fit.
+5. Press **Generate CV & Cover Letter**, choosing an augmentation level.
+6. **Applications** - preview, edit, regenerate, and download DOCX/PDF. Or select several
+   jobs on the Jobs page and use **Generate Selected**.
 
 Every job links to its real posting. Nothing is synthesised.
+
+## Augmentation levels
+
+Set a default in Settings; override per job at generation time.
+
+| Level | What the model may do |
+|---|---|
+| **Accurate** | Only what your profile says. Rewording, reordering and re-emphasis only. |
+| **Enhanced** | Presents real experience at its strongest; makes implied skills explicit. |
+| **Aggressive** | Reasonable inference about adjacent skills, framed toward the vacancy. |
+
+No level may invent employers, job titles, dates or numeric metrics. Anything inferred is
+marked `inferred` on the bullet and listed in a review panel before you export.
+
+## Writing that doesn't read as AI-written
+
+Generated CVs and cover letters go through three layers so they don't carry the usual
+machine-writing tells.
+
+1. **Style rules in the prompt** (`HUMAN_STYLE` in `generation.py`) ban the giveaway
+   vocabulary - delve, leverage, robust, seamless, spearheaded, pivotal, testament,
+   "proven track record", "I am excited to", "not only ... but also" and about forty more -
+   and, more importantly, target *rhythm*: vary sentence length hard, never write
+   everything in threes, no participial openers, no paragraph-summarising final sentence.
+   Rhythm matters more than word choice; a banned-word list is easy to satisfy while still
+   sounding synthetic.
+2. **A deterministic typography pass** (`humanize.py`) runs on every generated string,
+   because a model will not obey "never use an em dash" across a whole document. Em and en
+   dashes become commas (date ranges keep a hyphen), curly quotes become straight, ellipsis
+   characters and zero-width characters are removed. The output is plain ASCII.
+3. **A targeted revision pass.** Detection is deterministic, so when cliches or uniform
+   sentence lengths are found, the exact problems are named back to the model in one extra
+   call, with instructions to change only the flagged wording and keep every fact. Costs one
+   extra call, and only when something was actually found. A revision that introduces new
+   cliches or loses half the letter is rejected in favour of the original.
+
+Anything that survives is shown as a **Writing check** panel on the application page, so you
+can reword it before sending.
+
+> **Deliberately not done:** inserting zero-width characters, homoglyphs or other tricks
+> aimed at fooling AI-detection tools. Those corrupt the text layer that applicant tracking
+> systems read, so they would cost real interviews to defeat a tool that is unreliable
+> anyway. The goal here is writing that genuinely reads as human, not evasion.
+
+The CV template avoids the same tells: role and company are separated by a comma rather than
+an em dash, and skills are comma-separated rather than bullet-glyph separated, which also
+parses more reliably for ATS keyword extraction.
 
 ## Verify it is returning genuine data
 
@@ -59,47 +117,70 @@ Every job links to its real posting. Nothing is synthesised.
 cd backend
 uv run python -m app.scripts.smoke_indeed
 uv run python -m app.scripts.smoke_indeed "Backend Engineer"
+uv run python -m app.scripts.smoke_indeed "AI Engineer" glassdoor
 ```
 
-This calls the scraper directly and prints live listings with their URLs, independent of
-the app. If it returns nothing, try setting the location to `Dublin, Ireland` in Settings.
+Calls a source directly and prints live listings with URLs, independent of the app.
 
 ## Layout
 
 ```
 backend/app/
   sources/       one module per job board; registry.py is the extension point
-  pipeline.py    collect -> normalise -> filter -> dedup -> store
-  normalise.py   NaN/date/location cleanup, dedup keys
-  routers/       HTTP layer
-frontend/src/
-  pages/         Jobs, Job detail, Settings (+ Profile/Applications placeholders)
-data/            jobmatch.db, uploads/, generated/   (gitignored)
+  pipeline.py    collect -> normalise -> filter -> score -> dedup -> store -> rank
+  scoring.py     cheap local relevance score, no AI
+  ranking.py     batched AI ranking
+  cv_import.py   PDF/DOCX -> text -> structured profile
+  generation.py  augmentation rules, tailored CV and cover letter
+  documents.py   deterministic DOCX template + PDF conversion
+frontend/src/pages/   Jobs, Job detail, Profile, Applications, Application, Settings
+data/          jobmatch.db, profile.json, uploads/, generated/   (gitignored)
 ```
 
 ### Adding a job source
 
 Write a module in `backend/app/sources/` exposing `fetch(settings, search_term) -> SourceResult`,
 then add one line to `SOURCES` in `registry.py`. The pipeline needs no changes. A source that
-raises or rate-limits is recorded and skipped — it never stops the other sources.
+raises, rate-limits or returns nothing is recorded and skipped - it never stops the others.
+
+## Source status
+
+Measured on 5 August 2026. All are registered and selectable in Settings.
+
+| Source | State |
+|---|---|
+| **Indeed** | Working well. The default, and where the real discovery happens. |
+| **Glassdoor** | Returns HTTP 400 (`location not parsed`) for every Ireland location format tried. jobspy's Glassdoor scraper appears to be blocked; off by default. |
+| **JobsIreland** | Severely limited - see below. Off by default. |
+| **LinkedIn** | Supported but rate-limits hard without proxies. Off by default. |
+
+**JobsIreland limitation.** Only the ~11 most recently published vacancies are reachable
+without a browser. Any query parameter (`keyWord`, `location`, `page`) makes the server
+render "No jobs match this search"; pagination anchors are `Javascript:void(0)`; and
+`/en-US/job-Details` returns HTTP 500 to non-browser clients, so descriptions can't be
+fetched. Those few listings are mostly Community Employment schemes and general/hospitality
+roles, so for software work it usually contributes nothing. Real search there would need
+Playwright, which the brief asks us to avoid. The scraper is implemented and honest about
+this rather than silently returning nothing.
+
+A source failing is surfaced in the UI with its error, per search term. jobspy swallows HTTP
+failures and returns an empty result, so `sources/jobspy_source.py` captures jobspy's own
+error log to tell "blocked" apart from "no matches".
 
 ## Notes and limitations
 
 - **Deduplication** keys on source job ID, then canonical URL, then company+title+location.
   Re-running a search updates existing rows rather than duplicating them.
+- **Scores**: the badge shows the AI score once a job has been ranked, otherwise the local
+  score, labelled so you can tell them apart. Local scoring is deterministic and free; AI
+  ranking runs in batches over the top `ai_rank_top_n` jobs to avoid one call per vacancy.
+- **AI ranking needs a profile.** Without one there is nothing to match against, so it is
+  skipped and local scores stand.
 - **Work arrangement**: job boards only expose a remote flag. `remote` is filtered at the
-  source; `hybrid` and `on-site` are approximated from the listing text and are imprecise.
-- **Match scores** are intentionally blank. They arrive with local scoring (step 10) and AI
-  ranking (step 13); showing a placeholder number would be misleading.
-- **OpenAI key** can be saved in Settings (written to `.env`) but nothing calls it yet.
-- **Salaries are usually absent** — most Irish Indeed listings simply don't state one.
+  source; `hybrid` and `on-site` are approximated from listing text and are imprecise.
+- **Salaries are usually absent** - most Irish Indeed listings don't state one.
 - **Indeed blocks `curl`** with a 403, so don't test job links from the command line; they
-  open normally in a browser. Direct employer links (Workday, Greenhouse, Ashby, …) resolve fine.
-- **Indeed's own results occasionally include a non-Irish role.** Listings are stored exactly
-  as the source returned them rather than second-guessed; the location and the direct link
-  make such outliers obvious.
-
-## Not built yet
-
-Steps 7–20: Glassdoor, JobsIreland, relevance scoring, profile upload, AI ranking,
-augmentation levels, CV and cover-letter generation, DOCX/PDF export, bulk generation, LinkedIn.
+  open normally in a browser. Direct employer links resolve fine.
+- **Indeed's own results occasionally include a non-Irish role.** Listings are stored as the
+  source returned them; the location and direct link make outliers obvious.
+- **Scanned PDFs won't parse** - there's no OCR. Export a text-based PDF or upload DOCX.

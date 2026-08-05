@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init_db
-from .routers import jobs, settings
+from .routers import applications, jobs, profile, settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +36,8 @@ app.add_middleware(
 
 app.include_router(settings.router)
 app.include_router(jobs.router)
+app.include_router(profile.router)
+app.include_router(applications.router)
 
 
 @app.get("/api/health")

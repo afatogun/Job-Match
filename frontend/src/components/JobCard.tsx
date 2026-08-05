@@ -2,25 +2,7 @@ import { Link } from 'react-router-dom'
 
 import { applyUrl, formatSalary, relativeDate } from '../format'
 import type { Job } from '../types'
-import { Chip, StatusBadge } from './ui'
-
-function ScoreBadge({ score }: { score: number | null }) {
-  if (score === null) {
-    // Scores arrive with AI ranking (step 13); don't fake one in the meantime.
-    return (
-      <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-slate-100 text-[11px] font-medium text-slate-400">
-        —
-      </div>
-    )
-  }
-  const tone =
-    score >= 70 ? 'bg-emerald-50 text-emerald-700' : score >= 45 ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
-  return (
-    <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg text-sm font-semibold ${tone}`}>
-      {Math.round(score)}
-    </div>
-  )
-}
+import { Chip, ScoreBadge, StatusBadge } from './ui'
 
 interface Props {
   job: Job
@@ -41,7 +23,7 @@ export function JobCard({ job, selected, onToggleSelect }: Props) {
           className="mt-1.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-slate-900"
           aria-label={`Select ${job.title}`}
         />
-        <ScoreBadge score={job.relevance_score} />
+        <ScoreBadge score={job.relevance_score} isAi={job.ai_score !== null} />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -51,13 +33,26 @@ export function JobCard({ job, selected, onToggleSelect }: Props) {
             >
               {job.title}
             </Link>
-            <StatusBadge status={job.status} />
+            <div className="flex items-center gap-1.5">
+              {job.has_application && (
+                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200">
+                  Pack ready
+                </span>
+              )}
+              <StatusBadge status={job.status} />
+            </div>
           </div>
 
           <p className="mt-0.5 text-sm text-slate-600">
             {job.company ?? 'Unknown company'}
             {job.location && <span className="text-slate-400"> · {job.location}</span>}
           </p>
+
+          {job.ai_reason && (
+            <p className="mt-2 border-l-2 border-slate-200 pl-2.5 text-sm italic text-slate-600">
+              {job.ai_reason}
+            </p>
+          )}
 
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <Chip>{job.source}</Chip>
@@ -67,12 +62,33 @@ export function JobCard({ job, selected, onToggleSelect }: Props) {
             {salary && <Chip>{salary}</Chip>}
           </div>
 
+          {(job.ai_matching_skills.length > 0 || job.matching_terms.length > 0) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {(job.ai_matching_skills.length ? job.ai_matching_skills : job.matching_terms)
+                .slice(0, 6)
+                .map((term) => (
+                  <span
+                    key={term}
+                    className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700"
+                  >
+                    {term}
+                  </span>
+                ))}
+            </div>
+          )}
+
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Link
               to={`/jobs/${job.id}`}
               className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700"
             >
               View Job
+            </Link>
+            <Link
+              to={job.has_application ? `/applications/${job.id}` : `/jobs/${job.id}`}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              {job.has_application ? 'Open Application' : 'Generate Application'}
             </Link>
             <a
               href={applyUrl(job)}
