@@ -10,7 +10,7 @@ const AREAS = [
 export function Nav() {
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-8 px-6 py-3">
+      <div className="mx-auto flex max-w-screen-2xl items-center gap-8 px-6 py-3">
         <div className="flex items-center gap-2">
           <div className="grid h-7 w-7 place-items-center rounded-lg bg-slate-900 text-xs font-bold text-white">
             JM

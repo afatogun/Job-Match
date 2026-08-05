@@ -78,7 +78,7 @@ Refresh and bulk generation run on worker threads. In-memory state objects (`Ref
 AI ranking only runs on jobs that pass a local-score threshold (set in SearchSettings). Batched at 8 jobs/call for cost efficiency. Prompt instructs: "scores above 85 should be rare, judge on evidence only."
 
 ### Augmentation levels
-`accurate` → reword/reorder only | `enhanced` → make implicit skills explicit | `aggressive` → reasonable inference. **No level may invent employers, titles, dates, or metrics.** Anything inferred must be marked `inferred=true` and surfaced in the review panel before export.
+`accurate` → reword/reorder only | `enhanced` → infer adjacent skills the experience clearly implies, frame experience strongly | `aggressive` → full overhaul, freely adds tools/skills not in profile to make the candidate the ideal fit. **No level may invent employers, titles, dates, or fabricate numeric metrics.** Anything added/inferred must be marked `inferred=true` and surfaced in the review panel before export.
 
 ### Frontend–backend sync
 Types in `frontend/src/types.ts` mirror backend Pydantic models. Keep them in sync manually when changing models. All API calls go through the singleton `api` object in `frontend/src/api.ts`.

@@ -105,7 +105,7 @@ export function JobDetailPage() {
 
   if (error && !job) {
     return (
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-screen-2xl px-6 py-10">
         <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
         <Link to="/jobs" className="mt-4 inline-block text-sm text-slate-600 hover:text-slate-900">
           ← Back to jobs
@@ -120,7 +120,7 @@ export function JobDetailPage() {
   const url = applyUrl(job)
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-6">
+    <div className="mx-auto max-w-screen-2xl px-6 py-6">
       <Link to="/jobs" className="text-sm text-slate-500 hover:text-slate-900">
         ← Back to jobs
       </Link>

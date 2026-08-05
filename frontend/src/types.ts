@@ -1,5 +1,6 @@
 export type WorkMode = 'any' | 'remote' | 'hybrid' | 'onsite'
 export type Augmentation = 'accurate' | 'enhanced' | 'aggressive'
+export type OpenAIModel = 'gpt-4.1-nano' | 'gpt-4.1-mini' | 'gpt-4.1' | 'gpt-5'
 
 export const JOB_STATUSES = [
   'new',
@@ -21,17 +22,18 @@ export const AUGMENTATION_LEVELS: { value: Augmentation; label: string; blurb: s
   {
     value: 'enhanced',
     label: 'Enhanced',
-    blurb: 'Strengthens your real experience and makes implied skills explicit.',
+    blurb: 'Infers adjacent skills your experience implies and presents you as strongly as the evidence allows.',
   },
   {
     value: 'aggressive',
     label: 'Aggressive',
-    blurb: 'Reasonable inference to present you as strongly as the evidence allows.',
+    blurb: 'Full overhaul — adds tools and skills freely to make you the ideal candidate. Review all inferred additions before sending.',
   },
 ]
 
 export interface SearchSettings {
   target_titles: string[]
+  target_levels: string[]
   keywords: string[]
   excluded_keywords: string[]
   excluded_title_words: string[]
@@ -40,7 +42,7 @@ export interface SearchSettings {
   work_mode: WorkMode
   results_per_title: number
   sources: string[]
-  openai_model: string
+  openai_model: OpenAIModel
   default_augmentation: Augmentation
   ai_rank_top_n: number
   min_score_to_rank: number
@@ -76,6 +78,7 @@ export interface Job {
   has_application: boolean
   first_seen_at: string
   last_seen_at: string
+  profile_id: string | null
 }
 
 export interface JobListResponse {
@@ -125,12 +128,21 @@ export interface JobFilterState {
   q: string
   source: string
   status: string
+  profile_id: string
   posted_within_days: string
   min_score: string
   sort: 'newest' | 'best'
 }
 
 // ------------------------------------------------------------- profile
+
+export interface ProfileMeta {
+  id: string
+  name: string
+  is_active: boolean
+  created_at: string
+  source_filename: string | null
+}
 
 export interface PersonalInfo {
   full_name: string
@@ -235,6 +247,7 @@ export interface Application {
   has_cv_pdf: boolean
   has_cover_letter_docx: boolean
   model: string | null
+  profile_id: string | null
   created_at: string
   updated_at: string
   job: Job | null

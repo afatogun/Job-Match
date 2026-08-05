@@ -87,7 +87,8 @@ def is_excluded(job: RawJob, settings: SearchSettings) -> str | None:
     return None
 
 
-def _store(conn, job: RawJob, dkey: str, ckey: str, score: float, terms: list[str]) -> str:
+def _store(conn, job: RawJob, dkey: str, ckey: str, score: float, terms: list[str],
+           profile_id: str | None = None) -> str:
     """-> 'inserted' | 'updated'. Existing rows are refreshed, never duplicated."""
     now = _now()
 
@@ -123,8 +124,8 @@ def _store(conn, job: RawJob, dkey: str, ckey: str, score: float, terms: list[st
             is_remote, job_url, job_url_direct, date_posted, job_type,
             salary_min, salary_max, salary_currency, salary_interval,
             description, status, local_score, matching_terms,
-            first_seen_at, last_seen_at, raw_json
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?)
+            first_seen_at, last_seen_at, raw_json, profile_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?,?)
         """,
         (
             dkey,
@@ -149,6 +150,7 @@ def _store(conn, job: RawJob, dkey: str, ckey: str, score: float, terms: list[st
             now,
             now,
             json.dumps(job.raw, default=str),
+            profile_id,
         ),
     )
     return "inserted"
@@ -166,16 +168,30 @@ def _record_run(conn, run_id: str, started: str, result_source: str, term: str,
     )
 
 
+def _build_tasks(settings: SearchSettings) -> list[tuple[str, str]]:
+    """Expand title × level combinations then deduplicate."""
+    terms: list[str] = []
+    if settings.target_levels:
+        # Level-prefixed variants first so they drive the search; base titles as fallback
+        for title in settings.target_titles:
+            for level in settings.target_levels:
+                terms.append(f"{level} {title}")
+        terms.extend(settings.target_titles)
+    else:
+        terms = list(settings.target_titles)
+    seen: set[str] = set()
+    deduped = [t for t in terms if not (t in seen or seen.add(t))]  # type: ignore[func-returns-value]
+    return [(src, term) for src in settings.sources for term in deduped]
+
+
 def run_refresh() -> None:
     """Entry point for the background task. Swallows nothing silently - all errors surface."""
     run_id = uuid.uuid4().hex[:12]
-    settings = load_settings()
+    from .profile_store import active_profile_id
+    pid = active_profile_id()
+    settings = load_settings(pid)
 
-    tasks = [
-        (source_name, term)
-        for source_name in settings.sources
-        for term in settings.target_titles
-    ]
+    tasks = _build_tasks(settings)
 
     global _status
     with _lock:
@@ -221,7 +237,7 @@ def run_refresh() -> None:
                         terms = matching_terms(job, settings)
 
                         try:
-                            if _store(conn, job, dkey, ckey, score, terms) == "inserted":
+                            if _store(conn, job, dkey, ckey, score, terms, pid) == "inserted":
                                 inserted += 1
                             else:
                                 updated += 1
@@ -240,7 +256,7 @@ def run_refresh() -> None:
 
             _bump(completed=1)
 
-        _rank_with_ai(settings)
+        _rank_with_ai(settings, pid)
     except Exception as exc:  # noqa: BLE001 - never leave the UI stuck on "running"
         log.exception("Refresh run failed")
         with _lock:
@@ -250,7 +266,7 @@ def run_refresh() -> None:
         log.info("Refresh %s complete", run_id)
 
 
-def _rank_with_ai(settings: SearchSettings) -> None:
+def _rank_with_ai(settings: SearchSettings, profile_id: str | None = None) -> None:
     """Best-effort AI ranking of the strongest unranked jobs. Never fails a refresh."""
     if settings.ai_rank_top_n <= 0:
         return

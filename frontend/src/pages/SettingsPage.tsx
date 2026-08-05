@@ -3,13 +3,36 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { AugmentationPicker } from '../components/AugmentationPicker'
 import { Card } from '../components/ui'
-import type { SearchSettings, SourceInfo, WorkMode } from '../types'
+import type { OpenAIModel, ProfileMeta, SearchSettings, SourceInfo, WorkMode } from '../types'
 
 const WORK_MODES: { value: WorkMode; label: string }[] = [
   { value: 'any', label: 'Any' },
   { value: 'remote', label: 'Remote' },
   { value: 'hybrid', label: 'Hybrid' },
   { value: 'onsite', label: 'On-site' },
+]
+
+const AI_MODELS: { value: string; label: string; blurb: string }[] = [
+  {
+    value: 'gpt-4.1-nano',
+    label: 'Lower performance (fastest, lowest cost)',
+    blurb: 'Best for quick iterations and minimal token spend.',
+  },
+  {
+    value: 'gpt-4.1-mini',
+    label: 'Base performance (recommended)',
+    blurb: 'Balanced quality, speed and cost for most tasks.',
+  },
+  {
+    value: 'gpt-4.1',
+    label: 'Plus performance',
+    blurb: 'High quality outputs for ranking and document generation.',
+  },
+  {
+    value: 'gpt-5',
+    label: 'Max performance (best quality)',
+    blurb: 'Best output quality for the most demanding ranking and generation tasks.',
+  },
 ]
 
 const inputClass =
@@ -50,22 +73,28 @@ function ListField({
 }
 
 export function SettingsPage() {
+  const [profiles, setProfiles] = useState<ProfileMeta[]>([])
+  const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>()
   const [settings, setSettings] = useState<SearchSettings | null>(null)
   const [sources, setSources] = useState<SourceInfo[]>([])
-  const [openai, setOpenai] = useState<{ configured: boolean; masked: string }>({
-    configured: false,
-    masked: '',
-  })
-  const [keyInput, setKeyInput] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    api.getSettings().then(setSettings).catch((e) => setError(String(e)))
+    api.listProfiles().then((list) => {
+      setProfiles(list)
+      const active = list.find((p) => p.is_active) ?? list[0]
+      if (active) setSelectedProfileId(active.id)
+    }).catch(() => undefined)
     api.getSources().then(setSources).catch(() => setSources([]))
-    api.getOpenAIKey().then(setOpenai).catch(() => undefined)
   }, [])
+
+  useEffect(() => {
+    if (selectedProfileId === undefined) return
+    setSettings(null)
+    api.getSettings(selectedProfileId).then(setSettings).catch((e) => setError(String(e)))
+  }, [selectedProfileId])
 
   const update = <K extends keyof SearchSettings>(key: K, value: SearchSettings[K]) =>
     setSettings((prev) => (prev ? { ...prev, [key]: value } : prev))
@@ -76,7 +105,7 @@ export function SettingsPage() {
     setMessage(null)
     setError(null)
     try {
-      setSettings(await api.saveSettings(settings))
+      setSettings(await api.saveSettings(settings, selectedProfileId))
       setMessage('Settings saved.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save settings')
@@ -85,39 +114,87 @@ export function SettingsPage() {
     }
   }
 
-  const saveKey = async () => {
-    try {
-      setOpenai(await api.saveOpenAIKey(keyInput))
-      setKeyInput('')
-      setMessage('OpenAI key saved to .env')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save key')
-    }
-  }
-
-  if (!settings) {
-    return <p className="py-16 text-center text-sm text-slate-400">{error ?? 'Loading…'}</p>
+  if (!settings && !error) {
+    return <p className="py-16 text-center text-sm text-slate-400">Loading…</p>
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 px-6 py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Settings</h1>
-        <p className="mt-0.5 text-sm text-slate-500">Controls what every job search looks for.</p>
+    <div className="mx-auto max-w-screen-2xl space-y-4 px-6 py-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Settings</h1>
+          <p className="mt-0.5 text-sm text-slate-500">Controls what each profile's job search looks for.</p>
+        </div>
+        {profiles.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-500">Profile:</span>
+            <select
+              value={selectedProfileId ?? ''}
+              onChange={(e) => setSelectedProfileId(e.target.value || undefined)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-slate-500 focus:outline-none"
+            >
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{p.is_active ? ' (active)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
+
+      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      {!settings ? (
+        <p className="py-8 text-center text-sm text-slate-400">Loading…</p>
+      ) : (
+        <>
 
       <Card className="space-y-5 p-6">
         <h2 className="text-sm font-semibold text-slate-900">Job search</h2>
 
         <ListField
           label="Target job titles"
-          hint="Each title runs as its own search against every enabled source."
+          hint="Each title becomes its own search. Levels below are prepended to each title automatically."
           value={settings.target_titles}
           onChange={(v) => update('target_titles', v)}
         />
+
+        <div>
+          <label className="text-sm font-medium text-slate-700">Seniority levels</label>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Selected levels are searched as prefixes ("Senior Software Engineer", "Junior Software Engineer", etc.) alongside the base title. Leave all unselected to search without a level prefix.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {['Junior', 'Mid', 'Senior', 'Lead', 'Principal', 'Staff', 'Director'].map((lv) => {
+              const active = settings.target_levels.includes(lv)
+              return (
+                <button
+                  key={lv}
+                  type="button"
+                  onClick={() =>
+                    update(
+                      'target_levels',
+                      active
+                        ? settings.target_levels.filter((l) => l !== lv)
+                        : [...settings.target_levels, lv],
+                    )
+                  }
+                  className={`rounded-full px-3 py-1 text-sm font-medium transition ${
+                    active
+                      ? 'bg-slate-900 text-white'
+                      : 'border border-slate-300 text-slate-600 hover:border-slate-500'
+                  }`}
+                >
+                  {lv}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         <ListField
           label="Desired keywords"
-          hint="Used for ranking once local scoring lands in step 10."
+          hint="Boosts relevance score (up to 25%) for jobs that mention these — not a strict filter. Useful for specifying technologies or domains (e.g. React, Python, analytical chemistry). The AI ranking layer then checks full profile fit independently."
           value={settings.keywords}
           onChange={(v) => update('keywords', v)}
         />
@@ -242,13 +319,23 @@ export function SettingsPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="text-sm font-medium text-slate-700">Model</label>
-            <input
+            <select
               value={settings.openai_model}
-              onChange={(e) => update('openai_model', e.target.value)}
+              onChange={(e) => update('openai_model', e.target.value as OpenAIModel)}
               className={`mt-1.5 ${inputClass}`}
-            />
+            >
+              {AI_MODELS.map((model) => (
+                <option key={model.value} value={model.value}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
             <p className="mt-1 text-xs text-slate-500">
-              Used for CV parsing, ranking and generation.
+              Used for CV parsing, ranking and generation. API key is always read from
+              the root .env file.
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {AI_MODELS.find((m) => m.value === settings.openai_model)?.blurb}
             </p>
           </div>
 
@@ -296,31 +383,8 @@ export function SettingsPage() {
           </div>
         </div>
       </Card>
-
-      <Card className="space-y-3 p-6">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">OpenAI API key</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Stored in <code className="rounded bg-slate-100 px-1">.env</code>, which is gitignored.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            placeholder={openai.configured ? `Configured (${openai.masked})` : 'sk-…'}
-            className={`flex-1 ${inputClass}`}
-          />
-          <button
-            onClick={saveKey}
-            disabled={!keyInput.trim()}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            Save key
-          </button>
-        </div>
-      </Card>
+      </>
+      )}
     </div>
   )
 }

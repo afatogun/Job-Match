@@ -22,7 +22,7 @@ _JOB_COLUMNS = f"""
     job_url_direct, date_posted, job_type, salary_min, salary_max, salary_currency,
     salary_interval, status, local_score, ai_score, ai_reason, ai_matching_skills,
     ai_missing_skills, ai_seniority_fit, ai_ranked_at, matching_terms,
-    first_seen_at, last_seen_at,
+    first_seen_at, last_seen_at, profile_id,
     {DISPLAY_SCORE} AS relevance_score,
     EXISTS(SELECT 1 FROM applications a WHERE a.job_id = jobs.id) AS has_application
 """
@@ -55,6 +55,7 @@ def list_jobs(
     q: str | None = None,
     source: str | None = None,
     status: str | None = None,
+    profile_id: str | None = None,
     posted_within_days: int | None = Query(default=None, ge=1, le=365),
     min_score: float | None = Query(default=None, ge=0, le=100),
     sort: Literal["newest", "best"] = "newest",
@@ -74,6 +75,9 @@ def list_jobs(
     if status:
         where.append("status = ?")
         params.append(status)
+    if profile_id:
+        where.append("profile_id = ?")
+        params.append(profile_id)
     if posted_within_days is not None:
         cutoff = (date.today() - timedelta(days=posted_within_days)).isoformat()
         # Undated postings are kept rather than silently hidden.
@@ -161,3 +165,10 @@ def stats() -> Stats:
         generated_applications=generated,
         last_refresh_at=last["last"] if last else None,
     )
+
+
+@router.delete("/jobs", status_code=204)
+def clear_jobs() -> None:
+    """Delete every job and its cascade-deleted applications. Irreversible."""
+    with connect() as conn:
+        conn.execute("DELETE FROM jobs")

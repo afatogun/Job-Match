@@ -8,6 +8,7 @@ import type {
   JobListResponse,
   JobStatus,
   Profile,
+  ProfileMeta,
   RefreshStatus,
   SearchSettings,
   SourceInfo,
@@ -38,22 +39,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getSettings: () => request<SearchSettings>('/api/settings'),
+  getSettings: (profileId?: string) =>
+    request<SearchSettings>(`/api/settings${profileId ? `?profile_id=${profileId}` : ''}`),
 
-  saveSettings: (settings: SearchSettings) =>
-    request<SearchSettings>('/api/settings', { method: 'PUT', body: JSON.stringify(settings) }),
+  saveSettings: (settings: SearchSettings, profileId?: string) =>
+    request<SearchSettings>(`/api/settings${profileId ? `?profile_id=${profileId}` : ''}`, { method: 'PUT', body: JSON.stringify(settings) }),
 
   getSources: () => request<SourceInfo[]>('/api/settings/sources'),
 
-  getOpenAIKey: () => request<{ configured: boolean; masked: string }>('/api/settings/openai'),
-
-  saveOpenAIKey: (apiKey: string) =>
-    request<{ configured: boolean; masked: string }>('/api/settings/openai', {
-      method: 'PUT',
-      body: JSON.stringify({ api_key: apiKey }),
-    }),
-
   getStats: () => request<Stats>('/api/stats'),
+
+  clearJobs: () => request<void>('/api/jobs', { method: 'DELETE' }),
 
   getJobs: (filters: Partial<JobFilterState>, limit = 50, offset = 0) => {
     const params = new URLSearchParams()
@@ -63,6 +59,7 @@ export const api = {
     if (filters.posted_within_days) params.set('posted_within_days', filters.posted_within_days)
     if (filters.min_score) params.set('min_score', filters.min_score)
     if (filters.sort) params.set('sort', filters.sort)
+    if (filters.profile_id) params.set('profile_id', filters.profile_id)
     params.set('limit', String(limit))
     params.set('offset', String(offset))
     return request<JobListResponse>(`/api/jobs?${params.toString()}`)
@@ -90,6 +87,34 @@ export const api = {
     const form = new FormData()
     form.append('file', file)
     return request<Profile>('/api/profile/upload', { method: 'POST', body: form })
+  },
+
+  // --------------------------------------------------- multi-profile management
+
+  listProfiles: () => request<ProfileMeta[]>('/api/profiles'),
+
+  createProfile: (name: string) =>
+    request<ProfileMeta>('/api/profiles', { method: 'POST', body: JSON.stringify({ name }) }),
+
+  deleteProfile: (id: string) =>
+    request<void>(`/api/profiles/${id}`, { method: 'DELETE' }),
+
+  activateProfile: (id: string) =>
+    request<ProfileMeta[]>(`/api/profiles/${id}/activate`, { method: 'PUT' }),
+
+  renameProfile: (id: string, name: string) =>
+    request<ProfileMeta>(`/api/profiles/${id}/rename`, { method: 'PUT', body: JSON.stringify({ name }) }),
+
+  getProfileById: (id: string) =>
+    request<{ exists: boolean; profile: Profile | null }>(`/api/profiles/${id}`),
+
+  saveProfileById: (id: string, profile: Profile) =>
+    request<Profile>(`/api/profiles/${id}`, { method: 'PUT', body: JSON.stringify(profile) }),
+
+  uploadCVById: (id: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<Profile>(`/api/profiles/${id}/upload`, { method: 'POST', body: form })
   },
 
   // ------------------------------------------------------- applications

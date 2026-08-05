@@ -1,16 +1,17 @@
 import { JOB_STATUSES } from '../types'
-import type { JobFilterState, SourceInfo } from '../types'
+import type { JobFilterState, ProfileMeta, SourceInfo } from '../types'
 
 interface Props {
   filters: JobFilterState
   sources: SourceInfo[]
+  profiles: ProfileMeta[]
   onChange: (next: JobFilterState) => void
 }
 
 const selectClass =
   'rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-700 focus:border-slate-500 focus:outline-none'
 
-export function JobFilters({ filters, sources, onChange }: Props) {
+export function JobFilters({ filters, sources, profiles, onChange }: Props) {
   const set = <K extends keyof JobFilterState>(key: K, value: JobFilterState[K]) =>
     onChange({ ...filters, [key]: value })
 
@@ -64,6 +65,21 @@ export function JobFilters({ filters, sources, onChange }: Props) {
         <option value="50">50+</option>
         <option value="30">30+</option>
       </select>
+
+      {profiles.length > 1 && (
+        <select
+          value={filters.profile_id}
+          onChange={(e) => set('profile_id', e.target.value)}
+          className={selectClass}
+        >
+          <option value="">All profiles</option>
+          {profiles.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}{p.is_active ? ' ✓' : ''}
+            </option>
+          ))}
+        </select>
+      )}
 
       <select
         value={filters.sort}

@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS applications (
 );
 
 CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
+
+-- Per-profile search settings (one row per profile).
+CREATE TABLE IF NOT EXISTS profile_settings (
+    profile_id TEXT PRIMARY KEY,
+    json       TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 # Columns added after the first release. Applied idempotently on startup so an
@@ -88,6 +95,8 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("jobs", "ai_seniority_fit TEXT"),
     ("jobs", "ai_ranked_at TEXT"),
     ("jobs", "matching_terms TEXT"),
+    ("jobs", "profile_id TEXT"),
+    ("applications", "profile_id TEXT"),
 ]
 
 

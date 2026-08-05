@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 
 import { api } from '../api'
 import { AugmentationPicker } from '../components/AugmentationPicker'
+import { Markdown } from '../components/Markdown'
 import { Card, Spinner } from '../components/ui'
 import { applyUrl } from '../format'
 import type { Application, Augmentation, GeneratedCV, Job } from '../types'
@@ -194,7 +195,7 @@ export function ApplicationPage() {
 
   if (error && !app) {
     return (
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-screen-2xl px-6 py-10">
         <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
         <Link to="/applications" className="mt-4 inline-block text-sm text-slate-600">
           ← Back to applications
@@ -205,7 +206,7 @@ export function ApplicationPage() {
 
   if (!app) {
     return (
-      <div className="mx-auto max-w-4xl px-6 py-10 text-center">
+      <div className="mx-auto max-w-screen-2xl px-6 py-10 text-center">
         <p className="text-sm text-slate-500">
           No application has been generated for this job yet.
         </p>
@@ -220,7 +221,7 @@ export function ApplicationPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-6">
+    <div className="mx-auto max-w-screen-2xl px-6 py-6">
       <Link to="/applications" className="text-sm text-slate-500 hover:text-slate-900">
         ← Back to applications
       </Link>
@@ -246,196 +247,213 @@ export function ApplicationPage() {
         </p>
       )}
 
-      {app.flagged_additions.length > 0 && (
-        <Card className="mt-4 border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-semibold text-amber-900">
-            Review before sending — {app.flagged_additions.length} inferred addition
-            {app.flagged_additions.length > 1 ? 's' : ''}
-          </p>
-          <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm text-amber-900">
-            {app.flagged_additions.map((f, i) => (
-              <li key={i}>{f}</li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      {(app.style_notes.length > 0 || app.monotonous) && (
-        <Card className="mt-4 border-sky-200 bg-sky-50 p-4">
-          <p className="text-sm font-semibold text-sky-900">Writing check</p>
-          {app.style_notes.length > 0 && (
-            <p className="mt-1 text-sm text-sky-900">
-              Phrases that read as AI-written slipped through:{' '}
-              <span className="font-medium">{app.style_notes.join(', ')}</span>. Worth rewording
-              before you send it.
-            </p>
-          )}
-          {app.monotonous && (
-            <p className="mt-1 text-sm text-sky-900">
-              Cover letter sentences are all a similar length, which reads as machine-written. Break
-              one up or merge two.
-            </p>
-          )}
-        </Card>
-      )}
-
-      <Card className="mt-4 space-y-4 p-5">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex-1">
-            <p className="text-xs font-medium text-slate-500">Augmentation level</p>
-            <div className="mt-1.5">
-              <AugmentationPicker value={augmentation} onChange={setAugmentation} compact />
+      <div className="mt-5 flex items-start gap-6">
+        {/* Left: sticky job description panel */}
+        {job?.description && (
+          <div className="w-2/5 shrink-0">
+            <div className="sticky top-[57px] max-h-[calc(100vh-80px)] overflow-y-auto rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Job Description
+              </p>
+              <Markdown text={job.description} />
             </div>
           </div>
-          <button
-            onClick={regenerate}
-            disabled={busy !== null}
-            className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:bg-slate-400"
-          >
-            {busy === 'regenerate' && <Spinner />}
-            Regenerate
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
-          {app.has_cv_docx && (
-            <a
-              href={api.downloadUrl(id, 'cv.docx')}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Download CV (DOCX)
-            </a>
-          )}
-          {app.has_cv_pdf ? (
-            <a
-              href={api.downloadUrl(id, 'cv.pdf')}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Download CV (PDF)
-            </a>
-          ) : (
-            <span
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-400"
-              title="PDF conversion needs Microsoft Word or LibreOffice installed"
-            >
-              PDF unavailable
-            </span>
-          )}
-          {app.has_cover_letter_docx && (
-            <a
-              href={api.downloadUrl(id, 'cover-letter.docx')}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Download Cover Letter (DOCX)
-            </a>
-          )}
-          {job && (
-            <a
-              href={applyUrl(job)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Open Original Job ↗
-            </a>
-          )}
-        </div>
-        {app.model && (
-          <p className="text-[11px] text-slate-400">
-            Generated with {app.model} · {new Date(app.updated_at).toLocaleString('en-IE')}
-          </p>
         )}
-      </Card>
 
-      <div className="mt-5 flex gap-1 border-b border-slate-200">
-        {(['cv', 'cover'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
-              tab === t
-                ? 'border-slate-900 text-slate-900'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            {t === 'cv' ? 'CV' : 'Cover Letter'}
-          </button>
-        ))}
-      </div>
+        {/* Right: generated documents + controls */}
+        <div className="min-w-0 flex-1">
+          {app.flagged_additions.length > 0 && (
+            <Card className="border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-900">
+                Review before sending — {app.flagged_additions.length} inferred addition
+                {app.flagged_additions.length > 1 ? 's' : ''}
+              </p>
+              <ul className="mt-1.5 list-disc space-y-1 pl-5 text-sm text-amber-900">
+                {app.flagged_additions.map((f, i) => (
+                  <li key={i}>{f}</li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
-      {tab === 'cv' ? (
-        <div className="mt-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm text-slate-500">
-              {editing ? 'Editing structured CV content as JSON.' : 'Preview of the rendered CV.'}
-            </p>
-            <div className="flex gap-2">
-              {editing && (
-                <button
-                  onClick={saveCV}
-                  disabled={busy !== null}
-                  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:bg-slate-400"
-                >
-                  {busy === 'save-cv' && <Spinner />}
-                  Save &amp; re-render
-                </button>
+          {(app.style_notes.length > 0 || app.monotonous) && (
+            <Card className="mt-4 border-sky-200 bg-sky-50 p-4">
+              <p className="text-sm font-semibold text-sky-900">Writing check</p>
+              {app.style_notes.length > 0 && (
+                <p className="mt-1 text-sm text-sky-900">
+                  Phrases that read as AI-written slipped through:{' '}
+                  <span className="font-medium">{app.style_notes.join(', ')}</span>. Worth rewording
+                  before you send it.
+                </p>
               )}
+              {app.monotonous && (
+                <p className="mt-1 text-sm text-sky-900">
+                  Cover letter sentences are all a similar length, which reads as machine-written. Break
+                  one up or merge two.
+                </p>
+              )}
+            </Card>
+          )}
+
+          <Card className="mt-4 space-y-4 p-5">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex-1">
+                <p className="text-xs font-medium text-slate-500">Augmentation level</p>
+                <div className="mt-1.5">
+                  <AugmentationPicker value={augmentation} onChange={setAugmentation} compact />
+                </div>
+              </div>
               <button
-                onClick={() => {
-                  setEditing((e) => !e)
-                  setCvDraft(JSON.stringify(app.cv, null, 2))
-                }}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                onClick={regenerate}
+                disabled={busy !== null}
+                className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:bg-slate-400"
               >
-                {editing ? 'Cancel' : 'Edit'}
+                {busy === 'regenerate' && <Spinner />}
+                Regenerate
               </button>
             </div>
+
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+              {app.has_cv_docx && (
+                <a
+                  href={api.downloadUrl(id, 'cv.docx')}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Download CV (DOCX)
+                </a>
+              )}
+              {app.has_cv_pdf ? (
+                <a
+                  href={api.downloadUrl(id, 'cv.pdf')}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Download CV (PDF)
+                </a>
+              ) : (
+                <span
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-400"
+                  title="PDF conversion needs Microsoft Word or LibreOffice installed"
+                >
+                  PDF unavailable
+                </span>
+              )}
+              {app.has_cover_letter_docx && (
+                <a
+                  href={api.downloadUrl(id, 'cover-letter.docx')}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Download Cover Letter (DOCX)
+                </a>
+              )}
+              {job && (
+                <a
+                  href={applyUrl(job)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Open Original Job ↗
+                </a>
+              )}
+            </div>
+            {app.model && (
+              <p className="text-[11px] text-slate-400">
+                Generated with {app.model} · {new Date(app.updated_at).toLocaleString('en-IE')}
+              </p>
+            )}
+          </Card>
+
+          <div className="mt-5 flex gap-1 border-b border-slate-200">
+            {(['cv', 'cover'] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
+                  tab === t
+                    ? 'border-slate-900 text-slate-900'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {t === 'cv' ? 'CV' : 'Cover Letter'}
+              </button>
+            ))}
           </div>
 
-          {editing ? (
-            <textarea
-              value={cvDraft}
-              onChange={(e) => setCvDraft(e.target.value)}
-              spellCheck={false}
-              className="h-[32rem] w-full rounded-lg border border-slate-300 p-3 font-mono text-xs focus:border-slate-500 focus:outline-none"
-            />
-          ) : app.cv ? (
-            <CVPreview cv={app.cv} />
+          {tab === 'cv' ? (
+            <div className="mt-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm text-slate-500">
+                  {editing ? 'Editing structured CV content as JSON.' : 'Preview of the rendered CV.'}
+                </p>
+                <div className="flex gap-2">
+                  {editing && (
+                    <button
+                      onClick={saveCV}
+                      disabled={busy !== null}
+                      className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:bg-slate-400"
+                    >
+                      {busy === 'save-cv' && <Spinner />}
+                      Save &amp; re-render
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setEditing((e) => !e)
+                      setCvDraft(JSON.stringify(app.cv, null, 2))
+                    }}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    {editing ? 'Cancel' : 'Edit'}
+                  </button>
+                </div>
+              </div>
+
+              {editing ? (
+                <textarea
+                  value={cvDraft}
+                  onChange={(e) => setCvDraft(e.target.value)}
+                  spellCheck={false}
+                  className="h-[32rem] w-full rounded-lg border border-slate-300 p-3 font-mono text-xs focus:border-slate-500 focus:outline-none"
+                />
+              ) : app.cv ? (
+                <CVPreview cv={app.cv} />
+              ) : (
+                <p className="text-sm text-slate-500">No CV content.</p>
+              )}
+            </div>
           ) : (
-            <p className="text-sm text-slate-500">No CV content.</p>
+            <div className="mt-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm text-slate-500">Edit freely — saving re-renders the DOCX.</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(coverDraft)
+                      setNotice('Cover letter copied to clipboard.')
+                    }}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Copy text
+                  </button>
+                  <button
+                    onClick={saveCover}
+                    disabled={busy !== null}
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:bg-slate-400"
+                  >
+                    {busy === 'save-cover' && <Spinner />}
+                    Save &amp; re-render
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={coverDraft}
+                onChange={(e) => setCoverDraft(e.target.value)}
+                className="h-[32rem] w-full rounded-lg border border-slate-300 bg-white p-5 text-[15px] leading-relaxed focus:border-slate-500 focus:outline-none"
+              />
+            </div>
           )}
         </div>
-      ) : (
-        <div className="mt-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm text-slate-500">Edit freely — saving re-renders the DOCX.</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(coverDraft)
-                  setNotice('Cover letter copied to clipboard.')
-                }}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Copy text
-              </button>
-              <button
-                onClick={saveCover}
-                disabled={busy !== null}
-                className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:bg-slate-400"
-              >
-                {busy === 'save-cover' && <Spinner />}
-                Save &amp; re-render
-              </button>
-            </div>
-          </div>
-          <textarea
-            value={coverDraft}
-            onChange={(e) => setCoverDraft(e.target.value)}
-            className="h-[32rem] w-full rounded-lg border border-slate-300 bg-white p-5 text-[15px] leading-relaxed focus:border-slate-500 focus:outline-none"
-          />
-        </div>
-      )}
+      </div>
     </div>
   )
 }

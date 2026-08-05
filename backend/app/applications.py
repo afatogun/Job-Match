@@ -13,6 +13,7 @@ from .documents import (
     docx_to_pdf,
     render_cover_letter_docx,
     render_cv_docx,
+    slugify,
 )
 from .generation import generate_cover_letter, generate_cv
 from .humanize import clean_text, find_tells, reads_monotonous
@@ -80,6 +81,7 @@ def _row_to_application(row, job: Job | None = None) -> Application:
         has_cv_pdf=exists(row["cv_pdf"]),
         has_cover_letter_docx=exists(row["cover_letter_docx"]),
         model=row["model"],
+        profile_id=row["profile_id"] if "profile_id" in row.keys() else None,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         job=job,
@@ -105,9 +107,12 @@ def render_documents(job_id: int) -> tuple[bool, str | None]:
         raise ValueError("Application has no CV content to render")
 
     folder = application_folder(job)
-    cv_docx = folder / "cv.docx"
-    cover_docx = folder / "cover-letter.docx"
-    cv_pdf = folder / "cv.pdf"
+    candidate_slug = slugify(app_model.cv.full_name if app_model.cv else "", "candidate")
+    company_slug = slugify(job.get("company", ""), "company")
+    prefix = f"{candidate_slug}-{company_slug}"
+    cv_docx = folder / f"{prefix}-cv.docx"
+    cover_docx = folder / f"{prefix}-cover-letter.docx"
+    cv_pdf = folder / f"{prefix}-cv.pdf"
 
     render_cv_docx(app_model.cv, cv_docx)
     if app_model.cover_letter_text:
@@ -140,7 +145,9 @@ def render_documents(job_id: int) -> tuple[bool, str | None]:
 
 def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> Application:
     """Full pack for one job. Only ever called when the user asks."""
-    settings = load_settings()
+    from .profile_store import active_profile_id
+    pid = active_profile_id()
+    settings = load_settings(pid)
     profile = load_profile()
     if profile is None:
         raise ValueError("Upload your master CV on the Profile page first")
@@ -158,14 +165,15 @@ def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> A
         conn.execute(
             """
             INSERT INTO applications (job_id, augmentation, cv_json, cover_letter_text,
-                                      flagged_additions, model, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?)
+                                      flagged_additions, model, profile_id, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?)
             ON CONFLICT(job_id) DO UPDATE SET
                 augmentation      = excluded.augmentation,
                 cv_json           = excluded.cv_json,
                 cover_letter_text = excluded.cover_letter_text,
                 flagged_additions = excluded.flagged_additions,
                 model             = excluded.model,
+                profile_id        = excluded.profile_id,
                 updated_at        = excluded.updated_at
             """,
             (
@@ -175,6 +183,7 @@ def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> A
                 cover,
                 json.dumps(result.flagged_additions),
                 settings.openai_model,
+                pid,
                 now,
                 now,
             ),

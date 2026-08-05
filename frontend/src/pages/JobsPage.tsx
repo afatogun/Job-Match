@@ -13,6 +13,7 @@ import type {
   GenerationStatus,
   Job,
   JobFilterState,
+  ProfileMeta,
   RefreshStatus,
   SourceInfo,
   Stats,
@@ -24,6 +25,7 @@ const INITIAL_FILTERS: JobFilterState = {
   q: '',
   source: '',
   status: '',
+  profile_id: '',
   posted_within_days: '',
   min_score: '',
   sort: 'best',
@@ -35,6 +37,7 @@ export function JobsPage() {
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState<Stats | null>(null)
   const [sources, setSources] = useState<SourceInfo[]>([])
+  const [profiles, setProfiles] = useState<ProfileMeta[]>([])
   const [filters, setFilters] = useState<JobFilterState>(INITIAL_FILTERS)
   const [refresh, setRefresh] = useState<RefreshStatus | null>(null)
   const [generation, setGeneration] = useState<GenerationStatus | null>(null)
@@ -62,6 +65,7 @@ export function JobsPage() {
 
   useEffect(() => {
     api.getSources().then(setSources).catch(() => setSources([]))
+    api.listProfiles().then(setProfiles).catch(() => setProfiles([]))
     api
       .getSettings()
       .then((s) => setAugmentation((prev) => prev ?? s.default_augmentation))
@@ -149,6 +153,21 @@ export function JobsPage() {
     }
   }
 
+  const handleClearJobs = async () => {
+    if (!confirm('Delete all jobs and applications? This cannot be undone.')) return
+    setError(null)
+    try {
+      await api.clearJobs()
+      setJobs([])
+      setTotal(0)
+      setSelected(new Set())
+      setStats(null)
+      await loadJobs(filters)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not clear jobs')
+    }
+  }
+
   const handleBulkGenerate = async () => {
     if (selected.size === 0) return
     setError(null)
@@ -171,7 +190,7 @@ export function JobsPage() {
   const generating = generation?.running ?? false
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 px-6 py-6">
+    <div className="mx-auto max-w-screen-2xl space-y-4 px-6 py-6">
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Jobs</h1>
@@ -187,10 +206,22 @@ export function JobsPage() {
       </div>
 
       <StatsBar stats={stats} />
-      <RefreshPanel status={refresh} onRefresh={handleRefresh} error={error} />
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="flex-1">
+          <RefreshPanel status={refresh} onRefresh={handleRefresh} error={error} />
+        </div>
+        {(stats?.total_jobs ?? 0) > 0 && (
+          <button
+            onClick={handleClearJobs}
+            className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+          >
+            Clear all jobs
+          </button>
+        )}
+      </div>
 
       <div className="space-y-3 pt-1">
-        <JobFilters filters={filters} sources={sources} onChange={setFilters} />
+        <JobFilters filters={filters} sources={sources} profiles={profiles} onChange={setFilters} />
 
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
           <span>
@@ -268,6 +299,7 @@ export function JobsPage() {
                 job={job}
                 selected={selected.has(job.id)}
                 onToggleSelect={toggleSelect}
+                profiles={profiles}
               />
             ))}
           </div>

@@ -25,7 +25,9 @@ DEFAULT_TITLES = [
     "Full Stack Engineer",
 ]
 
-# Cheap, fast and structured-output capable. Overridable in Settings.
+# Curated model options for non-technical users.
+OPENAI_MODELS: tuple[str, ...] = ("gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1", "gpt-5")
+# Balanced default for cost and output quality.
 DEFAULT_MODEL = "gpt-4.1-mini"
 
 
@@ -43,6 +45,7 @@ def _clean_list(v: list[str]) -> list[str]:
 
 class SearchSettings(BaseModel):
     target_titles: list[str] = Field(default_factory=lambda: list(DEFAULT_TITLES))
+    target_levels: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     excluded_keywords: list[str] = Field(default_factory=list)
     excluded_title_words: list[str] = Field(default_factory=list)
@@ -62,6 +65,7 @@ class SearchSettings(BaseModel):
 
     @field_validator(
         "target_titles",
+        "target_levels",
         "keywords",
         "excluded_keywords",
         "excluded_title_words",
@@ -79,7 +83,10 @@ class SearchSettings(BaseModel):
     @field_validator("openai_model")
     @classmethod
     def _strip_model(cls, v: str) -> str:
-        return v.strip() or DEFAULT_MODEL
+        model = (v or "").strip()
+        if model in OPENAI_MODELS:
+            return model
+        return DEFAULT_MODEL
 
 
 class Job(BaseModel):
@@ -112,6 +119,7 @@ class Job(BaseModel):
     has_application: bool = False
     first_seen_at: str
     last_seen_at: str
+    profile_id: str | None = None
 
 
 class JobListResponse(BaseModel):
@@ -153,10 +161,6 @@ class RefreshStatus(BaseModel):
     filtered: int = 0
     ranked: int = 0
     errors: list[RefreshError] = Field(default_factory=list)
-
-
-class OpenAIKeyUpdate(BaseModel):
-    api_key: str
 
 
 # ---------------------------------------------------------------- profile
@@ -216,6 +220,22 @@ class Profile(BaseModel):
     updated_at: str = ""
 
 
+class ProfileMeta(BaseModel):
+    id: str
+    name: str
+    is_active: bool
+    created_at: str
+    source_filename: str | None = None
+
+
+class CreateProfileRequest(BaseModel):
+    name: str
+
+
+class RenameProfileRequest(BaseModel):
+    name: str
+
+
 # ------------------------------------------------------- generated documents
 
 
@@ -272,6 +292,7 @@ class Application(BaseModel):
     has_cv_pdf: bool = False
     has_cover_letter_docx: bool = False
     model: str | None = None
+    profile_id: str | None = None
     created_at: str
     updated_at: str
     job: Job | None = None

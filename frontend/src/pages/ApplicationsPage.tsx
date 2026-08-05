@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom'
 
 import { api } from '../api'
 import { EmptyState } from '../components/ui'
-import type { Application } from '../types'
+import type { Application, ProfileMeta } from '../types'
 
 export function ApplicationsPage() {
   const [apps, setApps] = useState<Application[] | null>(null)
+  const [profiles, setProfiles] = useState<ProfileMeta[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -14,10 +15,11 @@ export function ApplicationsPage() {
       .getApplications()
       .then(setApps)
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load applications'))
+    api.listProfiles().then(setProfiles).catch(() => undefined)
   }, [])
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-6">
+    <div className="mx-auto max-w-screen-2xl px-6 py-6">
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Applications</h1>
       <p className="mt-0.5 text-sm text-slate-500">
         Every generated CV and cover letter, newest first.
@@ -67,6 +69,14 @@ export function ApplicationsPage() {
                       {app.flagged_additions.length} inferred to review
                     </span>
                   )}
+                  {app.profile_id && (() => {
+                    const pName = profiles.find((p) => p.id === app.profile_id)?.name
+                    return pName ? (
+                      <span className="rounded-md bg-violet-50 px-2 py-0.5 text-violet-700">
+                        {pName}
+                      </span>
+                    ) : null
+                  })()}
                 </div>
               </div>
 

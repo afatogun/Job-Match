@@ -50,7 +50,7 @@ export function EmptyState({
 
 export function Placeholder({ title, step }: { title: string; step: string }) {
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="mx-auto max-w-screen-2xl px-6 py-10">
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
       <div className="mt-6 rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
         <p className="text-sm text-slate-600">Not built yet.</p>

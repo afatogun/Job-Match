@@ -37,6 +37,7 @@ app.add_middleware(
 app.include_router(settings.router)
 app.include_router(jobs.router)
 app.include_router(profile.router)
+app.include_router(profile.profiles_router)
 app.include_router(applications.router)
 
 

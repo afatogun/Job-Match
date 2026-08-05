@@ -14,6 +14,7 @@ from .sources.base import RawJob
 # Wording that signals a level well above or below an individual contributor role.
 SENIOR_WORDS = {"head", "director", "vp", "chief", "principal", "staff", "lead", "manager"}
 JUNIOR_WORDS = {"intern", "internship", "graduate", "trainee", "apprentice", "placement", "student"}
+MID_SYNONYMS = {"mid", "middle", "medior", "ii", "2"}  # common ways mid-level is written
 
 WEIGHTS = {
     "title": 45,
@@ -90,8 +91,29 @@ def _freshness_score(date_posted: str | None, max_age_days: int) -> float:
     return max(0.2, 1.0 - (age / max(1, max_age_days)))
 
 
-def _seniority_score(title: str) -> float:
+def _seniority_score(title: str, desired_levels: list[str]) -> float:
     words = _tokens(title)
+    if desired_levels:
+        # Map each desired level to the token set we recognise for it.
+        desired_tokens: set[str] = set()
+        for lv in desired_levels:
+            lv_n = norm_text(lv)
+            desired_tokens.add(lv_n)
+            # Expand well-known aliases so "Senior" matches head/lead/principal etc.
+            if lv_n in ("senior",):
+                desired_tokens |= SENIOR_WORDS
+            elif lv_n in ("junior",):
+                desired_tokens |= JUNIOR_WORDS
+            elif lv_n in ("mid", "middle", "medior"):
+                desired_tokens |= MID_SYNONYMS
+        if words & desired_tokens:
+            return 1.0
+        # Job has a clear level signal but it doesn't match — penalise.
+        all_known = SENIOR_WORDS | JUNIOR_WORDS | MID_SYNONYMS
+        if words & (all_known - desired_tokens):
+            return 0.2
+        return 0.7  # no level signal in title — neutral
+    # No preference: penalise clearly junior/very-senior roles, neutral otherwise.
     if words & JUNIOR_WORDS:
         return 0.15
     if words & SENIOR_WORDS:
@@ -106,7 +128,7 @@ def score_job(job: RawJob, settings: SearchSettings) -> float:
         "keywords": _keyword_score(job, settings.keywords),
         "location": _location_score(job, settings),
         "freshness": _freshness_score(job.date_posted, settings.max_job_age_days),
-        "seniority": _seniority_score(job.title),
+        "seniority": _seniority_score(job.title, settings.target_levels),
     }
     total = sum(parts[k] * WEIGHTS[k] for k in WEIGHTS)
     return round(min(100.0, max(0.0, total)), 1)

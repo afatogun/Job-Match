@@ -26,19 +26,26 @@ AUGMENTATION_RULES: dict[str, str] = {
         "in the profile. Mark nothing as inferred, because nothing should be."
     ),
     "enhanced": (
-        "ENHANCED MODE. Present the candidate's real experience at its strongest. "
-        "You may make explicit those skills that their described work clearly required "
-        "even if unnamed (e.g. someone who shipped a FastAPI service evidently used REST "
-        "API design). You may not invent employers, job titles, dates or numeric metrics. "
-        "Set inferred=true on any bullet that states something the profile only implies."
-    ),
-    "aggressive": (
-        "AGGRESSIVE MODE. Make the candidate look as strong as the evidence can "
+        "ENHANCED MODE. Make the candidate look as strong as the evidence can "
         "reasonably support. You may infer adjacent skills and responsibilities that "
         "someone in their roles would very likely have had, and frame their experience "
-        "toward this vacancy. You still may NOT invent employers, job titles, dates, or "
+        "directly toward this vacancy. You still may NOT invent employers, job titles, dates, or "
         "fabricate numeric metrics. Set inferred=true on every bullet containing anything "
         "not directly stated in the profile, so the user can review it before export."
+    ),
+    "aggressive": (
+        "AGGRESSIVE MODE. Completely overhaul the candidate's presentation to make them "
+        "the ideal fit for this specific vacancy. You may freely add tools, technologies, "
+        "skills and responsibilities that are not in the profile — anything a strong "
+        "candidate for this role would plausibly have. Reshape their narrative entirely "
+        "around what this role demands. Prioritise the vacancy's requirements over "
+        "faithfully representing the original profile. "
+        "Hard limits that must never be broken: do NOT change employer names, job titles, "
+        "or employment dates. Do NOT fabricate numeric metrics — use strong qualitative "
+        "framing instead. "
+        "Set inferred=true on every bullet or skill that goes beyond what the profile "
+        "explicitly states. The user will review and edit everything before sending. "
+        "The goal is a document that would be shortlisted for this role."
     ),
 }
 

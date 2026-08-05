@@ -116,15 +116,7 @@ def download(job_id: int, filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="File is missing from the generated folder")
 
-    with connect() as conn:
-        job = conn.execute("SELECT title, company FROM jobs WHERE id = ?", (job_id,)).fetchone()
-    from ..documents import slugify
-
-    stem = filename.rsplit(".", 1)[0]
-    ext = filename.rsplit(".", 1)[1]
-    nice = f"{slugify(job['company'] if job else '', 'company')}-{stem}.{ext}"
-
-    return FileResponse(path, media_type=media_type, filename=nice)
+    return FileResponse(path, media_type=media_type, filename=row["name"])
 
 
 # ------------------------------------------------------------------ bulk

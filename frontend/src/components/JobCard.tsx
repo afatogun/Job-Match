@@ -1,17 +1,19 @@
 import { Link } from 'react-router-dom'
 
 import { applyUrl, formatSalary, relativeDate } from '../format'
-import type { Job } from '../types'
+import type { Job, ProfileMeta } from '../types'
 import { Chip, ScoreBadge, StatusBadge } from './ui'
 
 interface Props {
   job: Job
   selected: boolean
   onToggleSelect: (id: number) => void
+  profiles?: ProfileMeta[]
 }
 
-export function JobCard({ job, selected, onToggleSelect }: Props) {
+export function JobCard({ job, selected, onToggleSelect, profiles = [] }: Props) {
   const salary = formatSalary(job)
+  const profileName = job.profile_id ? profiles.find((p) => p.id === job.profile_id)?.name : null
 
   return (
     <div className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow">
@@ -60,6 +62,11 @@ export function JobCard({ job, selected, onToggleSelect }: Props) {
             {job.is_remote && <Chip>Remote</Chip>}
             {job.job_type && <Chip>{job.job_type.replace(/_/g, ' ')}</Chip>}
             {salary && <Chip>{salary}</Chip>}
+            {profileName && (
+              <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700">
+                {profileName}
+              </span>
+            )}
           </div>
 
           {(job.ai_matching_skills.length > 0 || job.matching_terms.length > 0) && (
