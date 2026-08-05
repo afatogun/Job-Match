@@ -5,6 +5,8 @@ same template: one column, no tables for layout, no text boxes, no icons, no ski
 bars - all things that break ATS parsers.
 """
 
+# pyright: reportMissingImports=false, reportMissingModuleSource=false
+
 import logging
 import re
 import shutil
@@ -27,14 +29,16 @@ ACCENT = RGBColor(0x1F, 0x2A, 0x37)
 MUTED = RGBColor(0x55, 0x5F, 0x6D)
 
 
-def slugify(value: str, fallback: str = "item") -> str:
+def slugify(value: str | None, fallback: str = "item") -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", (value or "").strip().lower()).strip("-")
     return (slug or fallback)[:60]
 
 
 def application_folder(job: dict) -> Path:
     """generated/{company}-{role}-{job_id}/"""
-    name = f"{slugify(job.get('company'), 'company')}-{slugify(job.get('title'), 'role')}-{job['id']}"
+    company = str(job.get("company") or "")
+    title = str(job.get("title") or "")
+    name = f"{slugify(company, 'company')}-{slugify(title, 'role')}-{job['id']}"
     folder = GENERATED_DIR / name
     folder.mkdir(parents=True, exist_ok=True)
     return folder
