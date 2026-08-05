@@ -1,0 +1,18 @@
+[project]
+name = "jobmatch-backend"
+version = "0.1.0"
+description = "JobMatch Local backend - job discovery and tailored document generation"
+requires-python = "==3.12.*"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "python-dotenv>=1.0",
+    "python-jobspy>=1.1.82",
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "openai>=1.60",
+]
+
+[tool.uv]
+package = false
