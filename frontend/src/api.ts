@@ -18,8 +18,15 @@ import type {
 
 function resolveUrl(path: string): string {
   const base = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
-  if (!base) return path.startsWith('/') ? path : `/${path}`
-  return `${base}${path.startsWith('/') ? path : `/${path}`}`
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  if (!base) return normalizedPath
+
+  // Avoid /api/api/... when the base URL already ends with /api.
+  if (base.endsWith('/api') && normalizedPath === '/api') return base
+  if (base.endsWith('/api') && normalizedPath.startsWith('/api/')) {
+    return `${base}${normalizedPath.slice(4)}`
+  }
+  return `${base}${normalizedPath}`
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
