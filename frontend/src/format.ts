@@ -14,6 +14,16 @@ export function relativeDate(iso: string | null): string {
   return posted.toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })
 }
 
+const RECENT_HOURS = 48
+
+/** Elapsed-time check, not day-bucketed like relativeDate - a job first seen
+ * 11:58pm yesterday should still read as recent 2 minutes later. */
+export function isRecentlyAdded(firstSeenAt: string, hours = RECENT_HOURS): boolean {
+  const seen = new Date(firstSeenAt).getTime()
+  if (Number.isNaN(seen)) return false
+  return Date.now() - seen < hours * 60 * 60 * 1000
+}
+
 const CURRENCY_SYMBOLS: Record<string, string> = { EUR: '€', GBP: '£', USD: '$' }
 
 export function formatSalary(job: Job): string | null {

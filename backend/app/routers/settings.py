@@ -20,14 +20,24 @@ def write_settings(settings: SearchSettings, profile_id: str | None = Query(defa
     return save_settings(settings, profile_id)
 
 
-@router.put("", response_model=SearchSettings)
-def write_settings(settings: SearchSettings) -> SearchSettings:
-    return save_settings(settings)
-
-
 @router.get("/sources")
 def available_sources() -> list[dict[str, str]]:
     return [{"name": name, "label": label} for name, label in SOURCE_LABELS.items()]
+
+
+@router.get("/countries")
+def available_countries() -> list[dict[str, str]]:
+    from jobspy.model import Country  # lazy: importing jobspy pulls in pandas
+
+    skip = {"US_CANADA", "WORLDWIDE"}  # internal ziprecruiter/linkedin placeholders, not real countries
+    out = []
+    for member in Country:
+        if member.name in skip:
+            continue
+        aliases = [a.strip() for a in member.value[0].split(",") if a.strip()]
+        out.append({"value": aliases[0], "label": max(aliases, key=len).title()})
+    out.sort(key=lambda c: c["label"])
+    return out
 
 
 @router.post("/maintenance/cleanup")

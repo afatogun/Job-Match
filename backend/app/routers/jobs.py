@@ -1,6 +1,6 @@
 """Job listing, detail, status, refresh and dashboard stats."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -48,10 +48,11 @@ def list_jobs(
     status: str | None = None,
     profile_id: str | None = None,
     posted_within_days: int | None = Query(default=None, ge=1, le=365),
+    added_within_days: int | None = Query(default=None, ge=1, le=365),
     min_score: float | None = Query(default=None, ge=0, le=100),
     salary_min: float | None = Query(default=None, ge=0),
     salary_max: float | None = Query(default=None, ge=0),
-    sort: Literal["newest", "best", "salary_high"] = "newest",
+    sort: Literal["newest", "best", "salary_high", "recently_added"] = "newest",
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> JobListResponse:
@@ -76,6 +77,12 @@ def list_jobs(
         # Undated postings are kept rather than silently hidden.
         where.append("(date_posted IS NULL OR date_posted >= ?)")
         params.append(cutoff)
+    if added_within_days is not None:
+        cutoff_dt = (datetime.now(timezone.utc) - timedelta(days=added_within_days)).isoformat(
+            timespec="seconds"
+        )
+        where.append("first_seen_at >= ?")
+        params.append(cutoff_dt)
     if min_score is not None:
         where.append(f"{DISPLAY_SCORE} >= ?")
         params.append(min_score)
@@ -94,6 +101,8 @@ def list_jobs(
             f"ORDER BY COALESCE(salary_max, salary_min) DESC NULLS LAST, "
             f"{DISPLAY_SCORE} DESC NULLS LAST, date_posted DESC NULLS LAST, id DESC"
         )
+    elif sort == "recently_added":
+        order = "ORDER BY first_seen_at DESC, id DESC"
     else:
         order = "ORDER BY date_posted DESC NULLS LAST, id DESC"
 

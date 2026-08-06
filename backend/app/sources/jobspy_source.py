@@ -15,6 +15,7 @@ from ..normalise import (
     clean_location,
     clean_str,
     clean_value,
+    norm_text,
 )
 from .base import RawJob, SourceResult
 
@@ -22,6 +23,52 @@ log = logging.getLogger(__name__)
 
 # Kept out of raw_json - large, and not useful for matching.
 _RAW_SKIP = {"description", "company_logo", "company_description"}
+
+# jobspy's own Country enum only accepts "uk"/"united kingdom" - these are common
+# ways people actually type a UK location that it doesn't recognise natively.
+_COUNTRY_ALIASES = {
+    "northern ireland": "uk",
+    "england": "uk",
+    "scotland": "uk",
+    "wales": "uk",
+    "britain": "uk",
+    "great britain": "uk",
+    "gb": "uk",
+}
+
+
+def _resolve_country(explicit: str, location: str) -> str:
+    """jobspy-recognised country string for the country_indeed kwarg.
+
+    Priority: an explicit setting (unless "auto"/blank) beats inference from the
+    free-text location's trailing comma segments (country conventionally comes
+    last, e.g. "Belfast, Northern Ireland"), which beats the historical default.
+    """
+    from jobspy.model import Country  # lazy: importing jobspy pulls in pandas
+
+    def _normalise(raw: str) -> str | None:
+        token = norm_text(raw)
+        if not token:
+            return None
+        token = _COUNTRY_ALIASES.get(token, token)
+        try:
+            Country.from_string(token)
+        except ValueError:
+            return None
+        return token
+
+    explicit_norm = norm_text(explicit)
+    if explicit_norm and explicit_norm != "auto":
+        resolved = _normalise(explicit_norm)
+        if resolved:
+            return resolved
+
+    for segment in reversed((location or "").split(",")):
+        resolved = _normalise(segment)
+        if resolved:
+            return resolved
+
+    return "ireland"
 
 
 def _to_raw_job(row: dict, source: str) -> RawJob | None:
@@ -105,7 +152,7 @@ def fetch(site: str, settings: SearchSettings, search_term: str) -> SourceResult
 
     # country_indeed drives the regional site for both Indeed and Glassdoor.
     if site in ("indeed", "glassdoor"):
-        kwargs["country_indeed"] = "Ireland"
+        kwargs["country_indeed"] = _resolve_country(settings.country, settings.location)
 
     # LinkedIn omits the description unless asked, which costs one request per job.
     if site == "linkedin":

@@ -35,6 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_jobs_content_key  ON jobs(content_key);
 CREATE INDEX IF NOT EXISTS idx_jobs_date_posted  ON jobs(date_posted DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status       ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_source       ON jobs(source);
+CREATE INDEX IF NOT EXISTS idx_jobs_first_seen   ON jobs(first_seen_at DESC);
 
 CREATE TABLE IF NOT EXISTS search_settings (
     id         INTEGER PRIMARY KEY CHECK (id = 1),

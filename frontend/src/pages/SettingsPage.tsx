@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { AugmentationPicker } from '../components/AugmentationPicker'
 import { Card } from '../components/ui'
-import type { OpenAIModel, ProfileMeta, SearchSettings, SourceInfo, WorkMode } from '../types'
+import type { CountryOption, OpenAIModel, ProfileMeta, SearchSettings, SourceInfo, WorkMode } from '../types'
 
 const WORK_MODES: { value: WorkMode; label: string }[] = [
   { value: 'any', label: 'Any' },
@@ -77,6 +77,7 @@ export function SettingsPage() {
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>()
   const [settings, setSettings] = useState<SearchSettings | null>(null)
   const [sources, setSources] = useState<SourceInfo[]>([])
+  const [countries, setCountries] = useState<CountryOption[]>([])
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -88,6 +89,7 @@ export function SettingsPage() {
       if (active) setSelectedProfileId(active.id)
     }).catch(() => undefined)
     api.getSources().then(setSources).catch(() => setSources([]))
+    api.getCountries().then(setCountries).catch(() => setCountries([]))
   }, [])
 
   useEffect(() => {
@@ -191,7 +193,29 @@ export function SettingsPage() {
               onChange={(e) => update('location', e.target.value)}
               className={`mt-1.5 ${inputClass}`}
             />
-            <p className="mt-1 text-xs text-slate-500">Defaults to Ireland. Try "Dublin, Ireland" to narrow.</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Free text, e.g. "Belfast, Northern Ireland" or "Dublin, Ireland". Country below is
+              auto-detected from this unless you override it.
+            </p>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-700">Country</label>
+            <select
+              value={settings.country}
+              onChange={(e) => update('country', e.target.value)}
+              className={`mt-1.5 ${inputClass}`}
+            >
+              <option value="auto">Auto-detect from location</option>
+              {countries.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Only needed if auto-detection picks the wrong regional job board.
+            </p>
           </div>
 
           <div>

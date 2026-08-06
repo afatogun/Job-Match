@@ -5,16 +5,19 @@ import { api } from '../api'
 import { AugmentationPicker } from '../components/AugmentationPicker'
 import { JobCard } from '../components/JobCard'
 import { JobFilters } from '../components/JobFilters'
+import { LocationQuickEdit } from '../components/LocationQuickEdit'
 import { RefreshPanel } from '../components/RefreshPanel'
 import { StatsBar } from '../components/StatsBar'
 import { EmptyState, Spinner } from '../components/ui'
 import type {
   Augmentation,
+  CountryOption,
   GenerationStatus,
   Job,
   JobFilterState,
   ProfileMeta,
   RefreshStatus,
+  SearchSettings,
   SourceInfo,
   Stats,
 } from '../types'
@@ -27,6 +30,7 @@ const INITIAL_FILTERS: JobFilterState = {
   status: '',
   profile_id: '',
   posted_within_days: '',
+  added_within_days: '',
   min_score: '',
   salary_min: '',
   salary_max: '',
@@ -44,6 +48,8 @@ export function JobsPage() {
   const [refresh, setRefresh] = useState<RefreshStatus | null>(null)
   const [generation, setGeneration] = useState<GenerationStatus | null>(null)
   const [augmentation, setAugmentation] = useState<Augmentation | undefined>()
+  const [settings, setSettings] = useState<SearchSettings | null>(null)
+  const [countries, setCountries] = useState<CountryOption[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -68,10 +74,14 @@ export function JobsPage() {
 
   useEffect(() => {
     api.getSources().then(setSources).catch(() => setSources([]))
+    api.getCountries().then(setCountries).catch(() => setCountries([]))
     api.listProfiles().then(setProfiles).catch(() => setProfiles([]))
     api
       .getSettings()
-      .then((s) => setAugmentation((prev) => prev ?? s.default_augmentation))
+      .then((s) => {
+        setSettings(s)
+        setAugmentation((prev) => prev ?? s.default_augmentation)
+      })
       .catch(() => undefined)
   }, [])
 
@@ -148,15 +158,22 @@ export function JobsPage() {
       setProfiles(updatedProfiles)
       setFilters((prev) => ({ ...prev, profile_id: profileId }))
       try {
-        const settings = await api.getSettings(profileId)
-        setAugmentation(settings.default_augmentation)
+        const profileSettings = await api.getSettings(profileId)
+        setSettings(profileSettings)
+        setAugmentation(profileSettings.default_augmentation)
       } catch {
-        // Keep previous augmentation if profile settings are unavailable.
+        // Keep previous settings/augmentation if the profile's settings are unavailable.
       }
       await loadJobs({ ...filters, profile_id: profileId })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not switch active profile')
     }
+  }
+
+  const handleSaveSearchSettings = async (next: { country: string; location: string }) => {
+    if (!settings) return
+    const saved = await api.saveSettings({ ...settings, ...next }, activeProfile?.id)
+    setSettings(saved)
   }
 
   const handleRefresh = async () => {
@@ -211,7 +228,7 @@ export function JobsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Jobs</h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            Live vacancies in Ireland, linked to their genuine application pages.
+            Live vacancies matching your search settings, linked to their genuine application pages.
           </p>
         </div>
         <div className="flex flex-col items-end gap-1.5">
@@ -246,6 +263,14 @@ export function JobsPage() {
       </div>
 
       <StatsBar stats={stats} />
+      {settings && (
+        <LocationQuickEdit
+          country={settings.country}
+          location={settings.location}
+          countries={countries}
+          onSave={handleSaveSearchSettings}
+        />
+      )}
       <div className="flex flex-wrap items-start gap-3">
         <div className="flex-1">
           <RefreshPanel status={refresh} onRefresh={handleRefresh} error={error} />

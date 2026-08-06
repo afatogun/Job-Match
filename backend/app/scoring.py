@@ -93,10 +93,17 @@ def _location_score(job: RawJob, settings: SearchSettings) -> float:
         return 0.5
     if job.is_remote and settings.work_mode in ("any", "remote"):
         return 1.0
-    if wanted and wanted != "ireland" and wanted in location:
+    if not wanted:
+        return 0.5
+    if wanted == location or wanted in location:
         return 1.0
-    # Searches are Ireland-wide, so anything genuinely Irish is fine.
-    return 1.0 if "ireland" in location else 0.25
+    # Word-overlap rather than a hardcoded country name, so any configured
+    # location - not just Ireland - gets proportional credit.
+    wanted_tokens = _tokens(settings.location)
+    if not wanted_tokens:
+        return 0.5
+    overlap = len(wanted_tokens & _tokens(job.location)) / len(wanted_tokens)
+    return max(0.25, overlap)
 
 
 def _freshness_score(date_posted: str | None, max_age_days: int) -> float:

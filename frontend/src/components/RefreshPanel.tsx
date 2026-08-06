@@ -18,7 +18,7 @@ export function RefreshPanel({ status, onRefresh, error }: Props) {
         <div>
           <h2 className="text-sm font-semibold text-slate-900">Job discovery</h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            Searches your configured sources for live vacancies in Ireland.
+            Searches your configured sources for live vacancies matching your search settings.
           </p>
         </div>
         <button

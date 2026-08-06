@@ -40,6 +40,7 @@ export interface SearchSettings {
   excluded_keywords: string[]
   excluded_title_words: string[]
   location: string
+  country: string
   max_job_age_days: number
   work_mode: WorkMode
   results_per_title: number
@@ -49,6 +50,11 @@ export interface SearchSettings {
   ai_rank_top_n: number
   min_score_to_rank: number
   enable_external_interview_data: boolean
+}
+
+export interface CountryOption {
+  value: string
+  label: string
 }
 
 export interface Job {
@@ -133,10 +139,11 @@ export interface JobFilterState {
   status: string
   profile_id: string
   posted_within_days: string
+  added_within_days: string
   min_score: string
   salary_min: string
   salary_max: string
-  sort: 'newest' | 'best' | 'salary_high'
+  sort: 'newest' | 'best' | 'salary_high' | 'recently_added'
 }
 
 export const APPLICATION_STAGES = [

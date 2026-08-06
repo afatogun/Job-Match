@@ -2,6 +2,7 @@ import type {
   ApplicationStage,
   Application,
   Augmentation,
+  CountryOption,
   GeneratedCV,
   GenerationStatus,
   Job,
@@ -61,6 +62,8 @@ export const api = {
 
   getSources: () => request<SourceInfo[]>('/api/settings/sources'),
 
+  getCountries: () => request<CountryOption[]>('/api/settings/countries'),
+
   getStats: () => request<Stats>('/api/stats'),
 
   clearJobs: (profileId?: string) =>
@@ -74,6 +77,7 @@ export const api = {
     if (filters.source) params.set('source', filters.source)
     if (filters.status) params.set('status', filters.status)
     if (filters.posted_within_days) params.set('posted_within_days', filters.posted_within_days)
+    if (filters.added_within_days) params.set('added_within_days', filters.added_within_days)
     if (filters.min_score) params.set('min_score', filters.min_score)
     if (filters.salary_min) params.set('salary_min', filters.salary_min)
     if (filters.salary_max) params.set('salary_max', filters.salary_max)

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 
-import { applyUrl, formatSalary, relativeDate } from '../format'
+import { applyUrl, formatSalary, isRecentlyAdded, relativeDate } from '../format'
 import type { Job, ProfileMeta } from '../types'
 import { Chip, ScoreBadge, StatusBadge } from './ui'
 
@@ -57,6 +57,11 @@ export function JobCard({ job, selected, onToggleSelect, profiles = [] }: Props)
           )}
 
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            {isRecentlyAdded(job.first_seen_at) && (
+              <span className="rounded-md bg-fuchsia-50 px-1.5 py-0.5 text-[11px] font-medium text-fuchsia-700 ring-1 ring-inset ring-fuchsia-200">
+                Just found
+              </span>
+            )}
             <Chip>{job.source}</Chip>
             <Chip>{relativeDate(job.date_posted)}</Chip>
             {job.is_remote && <Chip>Remote</Chip>}

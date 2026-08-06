@@ -56,6 +56,18 @@ export function JobFilters({ filters, sources, profiles, onChange }: Props) {
       </select>
 
       <select
+        value={filters.added_within_days}
+        onChange={(e) => set('added_within_days', e.target.value)}
+        className={selectClass}
+      >
+        <option value="">Any time added</option>
+        <option value="1">Added today</option>
+        <option value="3">Added in last 3 days</option>
+        <option value="7">Added in last week</option>
+        <option value="30">Added in last 30 days</option>
+      </select>
+
+      <select
         value={filters.min_score}
         onChange={(e) => set('min_score', e.target.value)}
         className={selectClass}
@@ -110,7 +122,8 @@ export function JobFilters({ filters, sources, profiles, onChange }: Props) {
         onChange={(e) => set('sort', e.target.value as JobFilterState['sort'])}
         className={selectClass}
       >
-        <option value="newest">Newest first</option>
+        <option value="newest">Newest posted</option>
+        <option value="recently_added">Recently added</option>
         <option value="best">Best match</option>
         <option value="salary_high">Highest salary</option>
       </select>

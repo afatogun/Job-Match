@@ -59,6 +59,7 @@ class SearchSettings(BaseModel):
     excluded_keywords: list[str] = Field(default_factory=list)
     excluded_title_words: list[str] = Field(default_factory=list)
     location: str = "Ireland"
+    country: str = "auto"
     max_job_age_days: int = Field(default=7, ge=1, le=90)
     work_mode: WorkMode = "any"
     results_per_title: int = Field(default=40, ge=5, le=200)
@@ -89,6 +90,11 @@ class SearchSettings(BaseModel):
     @classmethod
     def _strip_location(cls, v: str) -> str:
         return v.strip() or "Ireland"
+
+    @field_validator("country")
+    @classmethod
+    def _strip_country(cls, v: str) -> str:
+        return (v or "").strip().lower() or "auto"
 
     @field_validator("openai_model")
     @classmethod
