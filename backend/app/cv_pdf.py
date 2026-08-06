@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from functools import lru_cache, partial
+from functools import lru_cache
 from html import escape
 from pathlib import Path
 
@@ -37,14 +37,12 @@ FONTS_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
 PDF_MARGIN_X = 54
 PDF_MARGIN_TOP = 44
 PDF_MARGIN_BOT = 48
-PDF_FOOTER_Y = 26
 
 PDF_INK = HexColor("#1A1A1A")
 PDF_HEAD = HexColor("#1F2A37")
 PDF_MUTED = HexColor("#555F6D")
 PDF_RULE = HexColor("#9AA3AF")
 
-PDF_SECTION_TRACK = 0.95
 PDF_RULE_WIDTH = 0.6
 
 SP_AFTER_CONTACT = 15
@@ -60,10 +58,6 @@ SECTION_MIN = 62
 BULLET_CHAR = "\u2022"
 BULLET_INDENT = 2
 BULLET_LEFT = 13
-
-PDF_LR_GAP = 12
-PDF_LR_MIN_LEFT_RATIO = 0.45
-PDF_LR_DESCENDER = 0.21
 
 _WINANSI_FIXUPS = {
     "\u2192": "->",
@@ -154,53 +148,6 @@ def _esc(value: str | None) -> str:
     return escape(_pdf_text(value))
 
 
-def _flatten_run_words(runs: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    out: list[tuple[str, str]] = []
-    for text, font in runs:
-        for word in _pdf_text(text).split():
-            if word in {",", ";", ":"} and out:
-                prev_word, prev_font = out[-1]
-                out[-1] = (prev_word + word, prev_font)
-                continue
-            out.append((word, font))
-    return out
-
-
-def _wrap_runs(
-    runs: list[tuple[str, str]],
-    first_width: float,
-    rest_width: float,
-    size: float,
-) -> list[list[tuple[str, str]]]:
-    words = _flatten_run_words(runs)
-    if not words:
-        return []
-
-    lines: list[list[tuple[str, str]]] = []
-    current: list[tuple[str, str]] = []
-    line_index = 0
-    current_width = 0.0
-
-    for word, font in words:
-        word_w = pdfmetrics.stringWidth(word, font, size)
-        space_w = pdfmetrics.stringWidth(" ", font, size) if current else 0.0
-        limit = first_width if line_index == 0 else rest_width
-
-        if current and (current_width + space_w + word_w) > max(limit, 1.0):
-            lines.append(current)
-            current = [(word, font)]
-            line_index += 1
-            current_width = word_w
-            continue
-
-        current.append((word, font))
-        current_width += space_w + word_w
-
-    if current:
-        lines.append(current)
-    return lines
-
-
 class SectionHeading(Flowable):
     def __init__(self, text: str, style: ParagraphStyle):
         super().__init__()
@@ -221,7 +168,7 @@ class SectionHeading(Flowable):
             0,
             SECTION_RULE_GAP + PDF_RULE_WIDTH,
             self.text,
-            charSpace=PDF_SECTION_TRACK,
+            charSpace=0.95,
         )
         c.setStrokeColor(PDF_RULE)
         c.setLineWidth(PDF_RULE_WIDTH)
@@ -229,98 +176,14 @@ class SectionHeading(Flowable):
         c.line(0, 0, self._width, 0)
 
 
-class LeftRightLine(Flowable):
-    def __init__(
-        self,
-        runs: list[tuple[str, str]],
-        right: str,
-        *,
-        left_size: float,
-        left_leading: float,
-        right_font: str,
-        right_size: float,
-        right_color,
-    ):
-        super().__init__()
-        self.runs = runs
-        self.right = _pdf_text(right)
-        self.left_size = left_size
-        self.left_leading = left_leading
-        self.right_font = right_font
-        self.right_size = right_size
-        self.right_color = right_color
-        self._width = 0.0
-        self._height = 0.0
-        self._stacked = False
-        self._lines: list[list[tuple[str, str]]] = []
-
-    def wrap(self, avail_width: float, avail_height: float) -> tuple[float, float]:
-        self._width = avail_width
-        right_w = (
-            pdfmetrics.stringWidth(self.right, self.right_font, self.right_size)
-            if self.right
-            else 0.0
-        )
-
-        left_first = avail_width - right_w - PDF_LR_GAP if self.right else avail_width
-        self._stacked = bool(self.right and left_first < (avail_width * PDF_LR_MIN_LEFT_RATIO))
-
-        if self._stacked:
-            self._lines = _wrap_runs(self.runs, avail_width, avail_width, self.left_size)
-        else:
-            self._lines = _wrap_runs(self.runs, left_first, avail_width, self.left_size)
-
-        left_lines = max(1, len(self._lines))
-        left_h = left_lines * self.left_leading
-        right_h = self.right_size * 1.2 if (self._stacked and self.right) else 0.0
-        self._height = left_h + right_h
-        return avail_width, self._height
-
-    def _draw_left_line(self, y: float, line: list[tuple[str, str]]) -> None:
-        c = self.canv
-        fragments: list[tuple[str, str]] = []
-        for i, (word, font) in enumerate(line):
-            text = word if i == 0 else f" {word}"
-            if fragments and fragments[-1][1] == font:
-                prev_text, prev_font = fragments[-1]
-                fragments[-1] = (prev_text + text, prev_font)
-            else:
-                fragments.append((text, font))
-
-        x = 0.0
-        c.setFillColor(PDF_HEAD)
-        for text, font in fragments:
-            c.setFont(font, self.left_size)
-            c.drawString(x, y, text)
-            x += pdfmetrics.stringWidth(text, font, self.left_size)
-
-    def draw(self) -> None:
-        c = self.canv
-        baseline = self._height - self.left_size + (self.left_size * PDF_LR_DESCENDER)
-
-        for line in self._lines:
-            self._draw_left_line(baseline, line)
-            baseline -= self.left_leading
-
-        if self.right:
-            c.setFont(self.right_font, self.right_size)
-            c.setFillColor(self.right_color)
-            right_y = (
-                self._height - self.right_size + (self.right_size * PDF_LR_DESCENDER)
-                if self._stacked
-                else self._height - self.left_size + (self.left_size * PDF_LR_DESCENDER)
-            )
-            c.drawRightString(self._width, right_y, self.right)
-
-
 @lru_cache(maxsize=2)
 def _styles(mode: str) -> tuple[dict[str, ParagraphStyle], dict[str, str]]:
     body, heading = _register_fonts(mode)
 
     faces = {
-        "reg": body,
-        "bold": tt2ps(body, 1, 0),
-        "ital": tt2ps(body, 0, 1),
+        "reg": heading,
+        "bold": tt2ps(heading, 1, 0),
+        "ital": tt2ps(heading, 0, 1),
         "sans_reg": heading,
         "sans_bold": tt2ps(heading, 1, 0),
         "sans_ital": tt2ps(heading, 0, 1),
@@ -365,7 +228,7 @@ def _styles(mode: str) -> tuple[dict[str, ParagraphStyle], dict[str, str]]:
             fontName=faces["sans_bold"],
             fontSize=9.5,
             leading=9.5,
-            textColor=PDF_HEAD,
+            textColor=HexColor("#334155"),
         ),
         "body": ParagraphStyle(
             "cv_body",
@@ -381,6 +244,14 @@ def _styles(mode: str) -> tuple[dict[str, ParagraphStyle], dict[str, str]]:
             fontName=faces["bold"],
             fontSize=11,
             leading=13.6,
+            textColor=PDF_HEAD,
+            **common,
+        ),
+        "roleline": ParagraphStyle(
+            "cv_roleline",
+            fontName=faces["reg"],
+            fontSize=10.5,
+            leading=12.8,
             textColor=PDF_HEAD,
             **common,
         ),
@@ -431,30 +302,17 @@ def _experience_block(
     faces: dict[str, str],
 ) -> list[Flowable]:
     flowables: list[Flowable] = [Spacer(1, ENTRY_SP_BEFORE)]
-    lead: list[Flowable] = []
-
-    runs: list[tuple[str, str]] = []
+    role_line = ""
     if exp.role:
-        runs.append((_pdf_text(exp.role), faces["bold"]))
+        role_line = f"<b>{_esc(exp.role)}</b>"
     if exp.company:
-        prefix = ", " if runs else ""
-        runs.append((f"{prefix}{_pdf_text(exp.company)}", faces["reg"]))
+        role_line += f'<font color="#555F6D">, {_esc(exp.company)}</font>'
+    if role_line:
+        flowables.append(Paragraph(role_line, styles["roleline"]))
 
-    if runs or exp.dates:
-        lead.append(
-            LeftRightLine(
-                runs=runs,
-                right=exp.dates,
-                left_size=11,
-                left_leading=13.6,
-                right_font=faces["sans_reg"],
-                right_size=9,
-                right_color=PDF_MUTED,
-            )
-        )
-
-    if exp.location:
-        lead.append(Paragraph(_esc(exp.location), styles["meta"]))
+    meta_bits = [bit for bit in (_pdf_text(exp.dates), _pdf_text(exp.location)) if bit]
+    if meta_bits:
+        flowables.append(Paragraph(_esc("  |  ".join(meta_bits)), styles["meta"]))
 
     bullets = [
         Paragraph(_esc(bullet.text), styles["bullet"], bulletText=BULLET_CHAR)
@@ -462,11 +320,10 @@ def _experience_block(
         if _pdf_text(bullet.text)
     ]
 
-    if bullets and lead:
-        flowables.append(KeepTogether([*lead, *bullets[:2]]))
+    if bullets and role_line:
+        flowables.append(KeepTogether(bullets[:2]))
         flowables.extend(bullets[2:])
     else:
-        flowables.extend(lead)
         flowables.extend(bullets)
 
     return flowables
@@ -490,33 +347,15 @@ def _education_block(
     styles: dict[str, ParagraphStyle],
     faces: dict[str, str],
 ) -> list[Flowable]:
-    runs: list[tuple[str, str]] = []
+    line = ""
     if edu.qualification:
-        runs.append((_pdf_text(edu.qualification), faces["bold"]))
-    if edu.institution:
-        prefix = ", " if runs else ""
-        runs.append((f"{prefix}{_pdf_text(edu.institution)}", faces["reg"]))
-
-    return [
-        LeftRightLine(
-            runs=runs,
-            right=edu.year,
-            left_size=10.5,
-            left_leading=13.6,
-            right_font=faces["sans_reg"],
-            right_size=9,
-            right_color=PDF_MUTED,
-        )
-    ]
-
-
-def _draw_cv_footer(canv, doc, *, name: str, styles: dict[str, ParagraphStyle]) -> None:
-    footer = styles["footer"]
-    y = PDF_FOOTER_Y
-    canv.setFont(footer.fontName, footer.fontSize)
-    canv.setFillColor(footer.textColor)
-    canv.drawString(PDF_MARGIN_X, y, _pdf_text(name))
-    canv.drawRightString(doc.width + doc.leftMargin, y, f"Page {canv.getPageNumber()}")
+        line = f"<b>{_esc(edu.qualification)}</b>"
+    tail = ", ".join(part for part in (_pdf_text(edu.institution), _pdf_text(edu.year)) if part)
+    if tail:
+        line += f", {_esc(tail)}" if line else _esc(tail)
+    if not line:
+        return []
+    return [Paragraph(line, styles["body"])]
 
 
 def _story(cv: GeneratedCV, styles: dict[str, ParagraphStyle], faces: dict[str, str]) -> list[Flowable]:
@@ -530,7 +369,7 @@ def _story(cv: GeneratedCV, styles: dict[str, ParagraphStyle], faces: dict[str, 
         story.append(Paragraph(_esc(cv.headline), styles["headline"]))
 
     if cv.contact:
-        contact = " \u00b7 ".join(_esc(item) for item in cv.contact if _pdf_text(item))
+        contact = "  |  ".join(_esc(item) for item in cv.contact if _pdf_text(item))
         if contact:
             story.append(Paragraph(contact, styles["contact"]))
 
@@ -586,6 +425,5 @@ def render_cv_pdf(cv: GeneratedCV, path: Path) -> Path:
     )
 
     story = _story(cv, styles, faces)
-    on_later = partial(_draw_cv_footer, name=candidate_name, styles=styles)
-    doc.build(story, onLaterPages=on_later)
+    doc.build(story)
     return path
