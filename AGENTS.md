@@ -40,7 +40,8 @@ backend/app/
   pipeline.py       collect → normalise → filter → score → dedup → store → rank
   scoring.py        Local relevance score (0–100): title 45% / keywords 25% / location 10% / freshness 12% / seniority 8%
   ranking.py        Batched AI ranking (8 jobs/call), structured output → JSON fallback
-  generation.py     Augmentation rules + human-style enforcement (50+ banned ML buzzwords)
+  gap_analysis.py   Vacancy requirement extraction + profile diff, feeds CV generation
+  generation.py     Augmentation policy + human-style enforcement (50+ banned ML buzzwords)
   documents.py      DOCX rendering (Calibri 10.5pt, ATS-safe) + LibreOffice/Word PDF export
   applications.py   Orchestrates generation; bulk run state via in-memory lock
   cv_import.py      PDF/DOCX/TXT → plain text → OpenAI → Profile
@@ -78,7 +79,18 @@ Refresh and bulk generation run on worker threads. In-memory state objects (`Ref
 AI ranking only runs on jobs that pass a local-score threshold (set in SearchSettings). Batched at 8 jobs/call for cost efficiency. Prompt instructs: "scores above 85 should be rare, judge on evidence only."
 
 ### Augmentation levels
-`accurate` → reword/reorder only | `enhanced` → infer adjacent skills the experience clearly implies, frame experience strongly | `aggressive` → full overhaul, freely adds tools/skills not in profile to make the candidate the ideal fit. **No level may invent employers, titles, dates, or fabricate numeric metrics.** Anything added/inferred must be marked `inferred=true` and surfaced in the review panel before export.
+Defined as `AUGMENTATION_POLICY` in `generation.py`. Every level uses the same six headings (`WHAT YOU MAY DO` / `WHAT YOU MAY NEVER DO` / `METRICS` / `JOB TITLES` / `PROJECTS AND EDUCATION` / `FLAGGING`) so a rule can never be silently absent. The policy leads the system prompt and explicitly overrides everything after it — `CV_CRAFT` is level-agnostic on purpose, because the old assembly stated absolute prohibitions ahead of the permission meant to override them.
+
+| Level | May do | May never do |
+|---|---|---|
+| `accurate` | Reword, reorder, drop. | Add anything not in the profile. Numbers must already be in the profile. |
+| `enhanced` | Reframe toward the vacancy, make explicit the skills the real work implies. | Name a system the profile does not mention. New numbers. Retitle roles. |
+| `aggressive` | Name initiatives/systems under real employers, state calibrated metrics, reframe titles toward the vacancy at the same seniority. | Add or rename an employer. Change dates. Inflate seniority. Add Projects entries, degrees or certifications. |
+
+**No level may invent employers, change employment dates, or add education.** `aggressive` may state metrics and named systems; `accurate` and `enhanced` may not. Anything asserted beyond the profile is marked `inferred=true` and listed in `flagged_additions` for the review panel. Under `aggressive`, `inferred` marks only invented specifics, not reworded real work, or the panel becomes noise.
+
+### Gap analysis (`gap_analysis.py`)
+`enhanced` and `aggressive` run a first pass (`analyse_gap`) that extracts the vacancy's requirements and diffs them against the profile before any CV is written, because one call asked to do both defaults to restating the profile. It is level-independent by design; `filter_for_level` narrows it in Python, which is what lets one cached analysis serve all three levels. Cached on the `applications` row keyed by `sha256(description + profile.updated_at)`. `accurate` never sees it. The call is wrapped in try/except — a failure degrades to single-pass generation, never a failed pack.
 
 ### Frontend–backend sync
 Types in `frontend/src/types.ts` mirror backend Pydantic models. Keep them in sync manually when changing models. All API calls go through the singleton `api` object in `frontend/src/api.ts`.

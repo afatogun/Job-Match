@@ -54,6 +54,18 @@ CLICHES = [
 
 _CLICHE_PATTERNS = [(c, re.compile(rf"\b{re.escape(c)}\b", re.I)) for c in CLICHES]
 
+# Softeners. Separate from CLICHES because these are only a defect under the aggressive
+# augmentation level, where the whole point is to state things outright. A model asked to
+# claim something it is unsure of reaches for these rather than refusing.
+HEDGES = [
+    "familiar with", "exposure to", "supported work on", "assisted with",
+    "gained understanding of", "gained experience in", "some experience",
+    "working knowledge of", "basic understanding", "helped to", "contributed towards",
+    "had the opportunity to", "was involved in", "participated in efforts",
+]
+
+_HEDGE_PATTERNS = [(h, re.compile(rf"\b{re.escape(h)}\b", re.I)) for h in HEDGES]
+
 
 def clean_text(text: str | None) -> str:
     """Remove machine-writing typography. Safe to run on any generated string."""
@@ -84,13 +96,43 @@ def clean_text(text: str | None) -> str:
     return out.strip()
 
 
-def find_tells(*texts: str | None) -> list[str]:
+def vacancy_allowed_cliches(description: str | None) -> set[str]:
+    """Cliches the vacancy itself uses, which are therefore fair to reuse.
+
+    Half of CLICHES is ordinary technical vocabulary in the right advert - robust,
+    orchestrated, dynamic, streamline. HUMAN_STYLE already carves out an exception for
+    words the job ad names; this is what lets the detector honour it, so a repair pass
+    cannot strip a keyword the role explicitly asks for.
+
+    Matched as substrings rather than whole words on purpose: an ad saying
+    "agent orchestration" should license "orchestrated".
+    """
+    if not description:
+        return set()
+    haystack = description.lower()
+    return {phrase for phrase in CLICHES if phrase in haystack}
+
+
+def find_tells(*texts: str | None, allow: set[str] | None = None) -> list[str]:
     """Cliches that survived generation, so the user can see what to edit."""
     haystack = " ".join(t for t in texts if t)
     if not haystack:
         return []
-    found = [phrase for phrase, pattern in _CLICHE_PATTERNS if pattern.search(haystack)]
+    allow = allow or set()
+    found = [
+        phrase
+        for phrase, pattern in _CLICHE_PATTERNS
+        if phrase not in allow and pattern.search(haystack)
+    ]
     return sorted(set(found))
+
+
+def find_hedges(*texts: str | None) -> list[str]:
+    """Softening language, which only counts as a defect under aggressive."""
+    haystack = " ".join(t for t in texts if t)
+    if not haystack:
+        return []
+    return sorted({phrase for phrase, pattern in _HEDGE_PATTERNS if pattern.search(haystack)})
 
 
 def sentence_lengths(text: str) -> list[int]:

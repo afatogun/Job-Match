@@ -1,6 +1,5 @@
 """Job listing, detail, status, refresh and dashboard stats."""
 
-import json
 from datetime import date, timedelta
 from typing import Literal
 
@@ -8,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from ..db import connect
 from ..models import Job, JobListResponse, RefreshStatus, Stats, StatusUpdate
+from ..normalise import json_list
 from ..pipeline import get_status, is_running, mark_queued, run_refresh
 from ..profile_store import active_profile_id
 
@@ -29,23 +29,13 @@ _JOB_COLUMNS = f"""
 """
 
 
-def _json_list(value) -> list[str]:
-    if not value:
-        return []
-    try:
-        parsed = json.loads(value)
-    except (ValueError, TypeError):
-        return []
-    return [str(x) for x in parsed] if isinstance(parsed, list) else []
-
-
 def row_to_job(row, include_description: bool = False) -> Job:
     data = dict(row)
     data["is_remote"] = None if data.get("is_remote") is None else bool(data["is_remote"])
     data["has_application"] = bool(data.get("has_application"))
-    data["ai_matching_skills"] = _json_list(data.get("ai_matching_skills"))
-    data["ai_missing_skills"] = _json_list(data.get("ai_missing_skills"))
-    data["matching_terms"] = _json_list(data.get("matching_terms"))
+    data["ai_matching_skills"] = json_list(data.get("ai_matching_skills"))
+    data["ai_missing_skills"] = json_list(data.get("ai_missing_skills"))
+    data["matching_terms"] = json_list(data.get("matching_terms"))
     if not include_description:
         data["description"] = None
     return Job.model_validate(data)

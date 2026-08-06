@@ -1,10 +1,27 @@
 """Data hygiene: scraped values -> clean, comparable, storable values."""
 
 import hashlib
+import json
 import math
 import re
 from datetime import date, datetime
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+def json_list(value) -> list[str]:
+    """A JSON TEXT column back into a list of strings, or an empty list.
+
+    Several jobs columns store lists this way. Anything malformed reads as absent
+    rather than raising, because a bad row must not take down a listing or a
+    generation run.
+    """
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (ValueError, TypeError):
+        return []
+    return [str(x) for x in parsed] if isinstance(parsed, list) else []
 
 # Query params that identify a posting are kept; these only track the referrer.
 # Indeed encodes the job id as ?jk=... so the query string must never be dropped wholesale.

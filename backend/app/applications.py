@@ -1,7 +1,9 @@
 """Application packs: generate, persist, render, and track bulk runs."""
 
+import hashlib
 import json
 import logging
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,9 +19,16 @@ from .documents import (
     render_cv_docx,
     slugify,
 )
+from .gap_analysis import analyse_gap
 from .generation import generate_cover_letter, generate_cv, generate_interview_prep
 from .interview_external import fetch_external_interview_prep
-from .humanize import clean_text, find_tells, reads_monotonous
+from .humanize import (
+    clean_text,
+    find_hedges,
+    find_tells,
+    reads_monotonous,
+    vacancy_allowed_cliches,
+)
 from .models import (
     APPLICATION_STAGES,
     Application,
@@ -29,6 +38,8 @@ from .models import (
     GenerationStatus,
     InterviewPrepData,
     Job,
+    JobGapAnalysis,
+    Profile,
 )
 from .profile_store import load_profile
 from .settings_store import load_settings
@@ -86,6 +97,14 @@ def _row_to_application(row, job: Job | None = None) -> Application:
         except ValueError:
             prep = None
 
+    # Words the advert itself uses are not tells. Only available when the caller kept the
+    # description; without it the check is simply stricter than it needs to be.
+    allow = vacancy_allowed_cliches(job.description if job else None)
+    notes = find_tells(cv_text, letter, allow=allow)
+    if row["augmentation"] == "aggressive":
+        # Hedging is only a defect here, where the whole point is to state things outright.
+        notes += [f"hedged: {h}" for h in find_hedges(cv_text)]
+
     return Application(
         id=row["id"],
         job_id=row["job_id"],
@@ -93,7 +112,7 @@ def _row_to_application(row, job: Job | None = None) -> Application:
         cv=cv,
         cover_letter_text=row["cover_letter_text"],
         flagged_additions=json.loads(row["flagged_additions"] or "[]"),
-        style_notes=find_tells(cv_text, letter),
+        style_notes=notes,
         monotonous=reads_monotonous(letter),
         folder=folder,
         has_cv_docx=exists(row["cv_docx"]),
@@ -174,7 +193,88 @@ def render_documents(job_id: int) -> tuple[bool, str | None]:
     return pdf_ok, pdf_error
 
 
-def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> Application:
+_NUMBER = re.compile(r"\d[\d,.]*%?")
+
+
+def _check_level_respected(level: Augmentation, result, profile: Profile) -> None:
+    """Warn when generation did something it should not have.
+
+    Only ever logged, never raised. The user can see and fix a bad CV; they cannot fix a
+    pack that was never generated, so a false positive must not cost them the run.
+    """
+    # Asked to drop bullets that do nothing for the vacancy, a model will sometimes drop
+    # the whole role. A CV with a hole in its employment history is rejected on sight.
+    real = {e.company.strip().lower() for e in profile.experience if e.company.strip()}
+    written = {e.company.strip().lower() for e in result.cv.experience if e.company.strip()}
+    if real - written:
+        log.warning(
+            "Generation dropped %d employer(s) from the CV: %s",
+            len(real - written),
+            sorted(real - written),
+        )
+
+    if level != "accurate":
+        return
+
+    if result.flagged_additions or any(
+        b.inferred for e in result.cv.experience for b in e.bullets
+    ):
+        log.warning("Accurate mode returned inferred content, which it should not have")
+
+    from .generation import _profile_text
+
+    known = set(_NUMBER.findall(_profile_text(profile)))
+    cv_text = " ".join(
+        [result.cv.summary, *(b.text for e in result.cv.experience for b in e.bullets)]
+    )
+    unknown = sorted(set(_NUMBER.findall(cv_text)) - known)
+    if unknown:
+        log.warning("Accurate mode produced numbers absent from the profile: %s", unknown)
+
+
+def _analysis_key(job: dict, profile: Profile) -> str:
+    """Identity of the two inputs the analysis actually depends on.
+
+    Not the augmentation level: the analysis describes the full picture and is narrowed
+    per level in Python, so one cached result serves all three. Profile.updated_at moves
+    on every profile save, which is what invalidates it when the candidate changes.
+    """
+    payload = f"{job.get('description') or ''}\x00{profile.updated_at}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def load_or_create_gap_analysis(
+    job_id: int, job: dict, profile: Profile, model: str, refresh: bool = False
+) -> JobGapAnalysis:
+    """Cached per job, because regenerating at a different level is the common case.
+
+    Reads the cache here; the write happens in the same upsert that stores the pack, so
+    the very first generation (which has no applications row yet) still populates it.
+    """
+    key = _analysis_key(job, profile)
+
+    if not refresh:
+        with connect() as conn:
+            row = conn.execute(
+                "SELECT gap_analysis_json, gap_analysis_key FROM applications WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
+        if row and row["gap_analysis_json"] and row["gap_analysis_key"] == key:
+            try:
+                analysis = JobGapAnalysis.model_validate_json(row["gap_analysis_json"])
+                log.info("Gap analysis cache hit for job %s", job_id)
+                return analysis
+            except ValueError:
+                pass  # Stale shape from an older release; recompute.
+
+    return analyse_gap(profile, job, model)
+
+
+def generate_for_job(
+    job_id: int,
+    augmentation: Augmentation | None = None,
+    refresh_analysis: bool = False,
+) -> Application:
     """Full pack for one job. Only ever called when the user asks."""
     from .profile_store import active_profile_id
     pid = active_profile_id()
@@ -188,8 +288,24 @@ def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> A
     with connect() as conn:
         job = _job_row(conn, job_id)
 
-    result = generate_cv(profile, job, level, settings.openai_model)
-    cover = generate_cover_letter(profile, job, result.cv, level, settings.openai_model)
+    # Accurate has no gaps to close, so it never sees an analysis at all - the bridge
+    # claims must not be anywhere in its context.
+    analysis = None
+    if level != "accurate":
+        try:
+            analysis = load_or_create_gap_analysis(
+                job_id, job, profile, settings.openai_model, refresh=refresh_analysis
+            )
+        except Exception as exc:  # noqa: BLE001 - never let the new call break generation
+            log.warning(
+                "Gap analysis failed for job %s, generating without it: %s", job_id, exc
+            )
+
+    result = generate_cv(profile, job, level, settings.openai_model, analysis=analysis)
+    cover = generate_cover_letter(
+        profile, job, result.cv, level, settings.openai_model, analysis=analysis
+    )
+    _check_level_respected(level, result, profile)
 
     now = _now()
     with connect() as conn:
@@ -197,8 +313,9 @@ def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> A
             """
             INSERT INTO applications (job_id, augmentation, cv_json, cover_letter_text,
                                       flagged_additions, model, profile_id, stage,
-                                      stage_updated_at, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                                      stage_updated_at, gap_analysis_json, gap_analysis_key,
+                                      gap_analysis_generated_at, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(job_id) DO UPDATE SET
                 augmentation      = excluded.augmentation,
                 cv_json           = excluded.cv_json,
@@ -208,6 +325,10 @@ def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> A
                 profile_id        = excluded.profile_id,
                 stage             = COALESCE(applications.stage, excluded.stage),
                 stage_updated_at  = COALESCE(applications.stage_updated_at, excluded.stage_updated_at),
+                gap_analysis_json = COALESCE(excluded.gap_analysis_json, applications.gap_analysis_json),
+                gap_analysis_key  = COALESCE(excluded.gap_analysis_key, applications.gap_analysis_key),
+                gap_analysis_generated_at = COALESCE(excluded.gap_analysis_generated_at,
+                                                     applications.gap_analysis_generated_at),
                 updated_at        = excluded.updated_at
             """,
             (
@@ -220,6 +341,9 @@ def generate_for_job(job_id: int, augmentation: Augmentation | None = None) -> A
                 pid,
                 "generated",
                 now,
+                analysis.model_dump_json() if analysis else None,
+                _analysis_key(job, profile) if analysis else None,
+                now if analysis else None,
                 now,
                 now,
             ),

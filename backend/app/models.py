@@ -297,6 +297,65 @@ class GeneratedCV(BaseModel):
     education: list[CVEducation] = Field(default_factory=list)
 
 
+# ---------------------------------------------------------------- gap analysis
+#
+# Produced by a first pass over the vacancy, before any CV is written. The point is to
+# turn decisions into lookups: a writing call that has to work out what the role wants,
+# diff it against the profile, choose what to bridge and then write it will fall back to
+# restating the profile. Given this, it only has to write.
+
+Importance = Literal["must_have", "strong_plus", "nice_to_have"]
+
+
+class RequirementEvidence(BaseModel):
+    """A vacancy requirement the profile already answers."""
+
+    requirement: str = ""
+    jd_phrase: str = ""  # the vacancy's own wording, verbatim, for ATS purposes
+    importance: Importance = "strong_plus"
+    profile_evidence: str = ""  # the specific profile line that proves it
+    evidence_role: str = ""  # "Role at Company"
+    strength: Literal["direct", "adjacent"] = "direct"
+
+
+class RequirementGap(BaseModel):
+    """A vacancy requirement the profile does not answer, and how to close it."""
+
+    requirement: str = ""
+    jd_phrase: str = ""
+    importance: Importance = "strong_plus"
+    nearest_real_experience: str = ""  # closest true thing, for interview survival
+    bridge_role: str = ""  # "Role at Company" - must be a real role from the profile
+    bridge_claim: str = ""  # one bullet-shaped assertion, written as settled fact
+    bridge_credibility: Literal["natural", "stretch", "implausible"] = "stretch"
+    metric_hint: str = ""  # what kind of number is credible, with a magnitude band
+    skill_tokens: list[str] = Field(default_factory=list)
+
+
+class TitleReframe(BaseModel):
+    company: str = ""
+    original_role: str = ""
+    suggested_role: str = ""
+    justification: str = ""
+
+
+class JobGapAnalysis(BaseModel):
+    """Field order matters. Structured output is generated in declaration order, so if a
+    response is cut short the later fields are the ones lost. `gaps` is the whole point
+    of this pass, so it is emitted before the evidence summary, not after it."""
+
+    role_archetype: str = ""
+    seniority: Literal["junior", "mid", "senior", "staff", "lead", "unknown"] = "unknown"
+    positioning_statement: str = ""
+    headline_suggestion: str = ""
+    ats_keywords: list[str] = Field(default_factory=list)
+    gaps: list[RequirementGap] = Field(default_factory=list)
+    covered: list[RequirementEvidence] = Field(default_factory=list)
+    title_reframes: list[TitleReframe] = Field(default_factory=list)
+    do_not_claim: list[str] = Field(default_factory=list)
+    generated_at: str = ""
+
+
 class InterviewQuestion(BaseModel):
     question: str
     why_relevant: str = ""

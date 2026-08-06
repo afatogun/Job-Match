@@ -71,11 +71,25 @@ Set a default in Settings; override per job at generation time.
 | Level | What the model may do |
 |---|---|
 | **Accurate** | Only what your profile says. Rewording, reordering and re-emphasis only. |
-| **Enhanced** | Presents real experience at its strongest; makes implied skills explicit. |
-| **Aggressive** | Reasonable inference about adjacent skills, framed toward the vacancy. |
+| **Enhanced** | Rebuilds the CV around the vacancy and makes explicit the skills your real work implies. No invented systems, no new numbers, job titles untouched. |
+| **Aggressive** | Closes every gap in the ad. Names initiatives and systems under your real employers, states calibrated metrics, and reframes job titles toward the role at the same seniority. |
 
-No level may invent employers, job titles, dates or numeric metrics. Anything inferred is
-marked `inferred` on the bullet and listed in a review panel before you export.
+**No level may invent an employer, change employment dates, add a degree or certification,
+or add a project that is not in your profile.** Those are absolute.
+
+Aggressive is the one that will state things you have not done, which is the point of it:
+it builds the CV that gets shortlisted, using your real career as the raw material. Every
+claim it makes beyond your profile is marked `inferred` on the bullet and listed in a
+review panel. Read them before you export, because you will be asked about them at
+interview. If you want a CV you can send without checking, use Enhanced.
+
+Enhanced and Aggressive read the vacancy twice. The first pass extracts what the advert
+actually asks for and diffs it against your profile, producing a list of what is already
+evidenced and what is missing, with a specific suggestion for which real role each gap
+attaches to. The CV is then written from that. One call asked to both work out what a job
+demands and write a CV against it does the easy half, restating your profile in the ad's
+vocabulary and calling it tailoring. The analysis is cached per job, so regenerating at a
+different level does not pay for it twice.
 
 ## Writing that doesn't read as AI-written
 
@@ -131,7 +145,8 @@ backend/app/
   scoring.py     cheap local relevance score, no AI
   ranking.py     batched AI ranking
   cv_import.py   PDF/DOCX -> text -> structured profile
-  generation.py  augmentation rules, tailored CV and cover letter
+  gap_analysis.py  reads the vacancy, diffs it against your profile
+  generation.py  augmentation policy, tailored CV and cover letter
   documents.py   deterministic DOCX template + PDF conversion
 frontend/src/pages/   Jobs, Job detail, Profile, Applications, Application, Settings
 data/          jobmatch.db, profile.json, uploads/, generated/   (gitignored)

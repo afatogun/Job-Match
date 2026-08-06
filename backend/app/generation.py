@@ -10,43 +10,136 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 from .ai import complete_structured, complete_text
-from .humanize import clean_text, find_tells, reads_monotonous
-from .models import Augmentation, GeneratedCV, InterviewPrepData, Profile
+from .humanize import clean_text, find_tells, reads_monotonous, vacancy_allowed_cliches
+from .models import (
+    Augmentation,
+    GeneratedCV,
+    InterviewPrepData,
+    JobGapAnalysis,
+    Profile,
+)
 
 log = logging.getLogger(__name__)
 
-DESCRIPTION_CHARS = 6000
+# The writing pass sees a trimmed description because it also receives the structured
+# vacancy analysis; the analysis pass gets far more, because the requirements that
+# differentiate a role live in the preferred-qualifications section at the very end.
+DESCRIPTION_CHARS = 4000
+ANALYSIS_DESCRIPTION_CHARS = 16000
+
+# Enforced, not requested. See _clean_cv.
+MAX_SKILLS = 24
 
 # Step 14. The only thing that varies is how far the model may go beyond the profile.
-AUGMENTATION_RULES: dict[str, str] = {
+#
+# Every level uses the same six headings. That is deliberate: a rule can then never be
+# silently absent, and the difference between levels reads as a diff on fixed axes rather
+# than three differently-shaped paragraphs. No absolute prohibition lives anywhere outside
+# these blocks - CV_CRAFT below is level-agnostic on purpose.
+AUGMENTATION_POLICY: dict[str, str] = {
+    "accurate": """Use only information present in the candidate profile. Reword, reorder,
+re-emphasise and restructure to fit the vacancy, and use the job's vocabulary for things
+the candidate demonstrably did.
+
+WHAT YOU MAY DO. Rewrite any wording. Reorder roles, bullets and skills so the most
+relevant material leads. Drop anything the vacancy has no use for.
+
+WHAT YOU MAY NEVER DO. Add a skill, tool, responsibility or employer that is not in the
+profile. Assert anything the profile does not already say.
+
+METRICS. Only numbers already present in the profile, attached to the same work they
+describe there.
+
+JOB TITLES. Exactly as the profile states them.
+
+PROJECTS AND EDUCATION. Copied from the profile. Descriptions may be reworded, nothing
+may be added.
+
+FLAGGING. Mark nothing as inferred, because nothing should be. Leave flagged_additions
+empty.""",
+    "enhanced": """Present this candidate as a strong, well-matched applicant for this
+specific vacancy. Reshape the CV around what the role asks for.
+
+WHAT YOU MAY DO. Reframe every role, bullet and project in the vacancy's own vocabulary.
+Make explicit the skills and responsibilities the candidate's real work clearly implies
+but never spelled out: someone who shipped a RAG chatbot did chunking, embedding and
+retrieval evaluation, so say so. Reorder and reweight so the most relevant role leads and
+the least relevant shrinks to a line. Add tools to the skills list where the described
+work could not have happened without them.
+
+WHAT YOU MAY NEVER DO. Name a system, product or initiative the profile does not mention.
+Add an employer. Claim a responsibility the candidate's real work does not imply.
+
+METRICS. Use only numbers already in the profile. Write qualitatively everywhere else.
+
+JOB TITLES. Exactly as the profile states them.
+
+PROJECTS AND EDUCATION. Re-describe existing projects toward the vacancy. Add nothing.
+Education is copied verbatim.
+
+FLAGGING. Set inferred=true on any bullet asserting something the profile does not state
+outright, so the user can review it before export.""",
+    "aggressive": """The candidate has authorised this level of extrapolation and reviews
+every claim before sending. Write each claim as settled fact, in the past tense, with no
+hedging language.
+
+You are not summarising this candidate. You are building the CV that gets shortlisted for
+this exact vacancy, using their real career as the raw material. Work from the VACANCY
+ANALYSIS in the user message: every requirement marked must-have or strong-plus is to be
+visibly answered somewhere in the CV, in the vacancy's own terminology, attached to a real
+employer.
+
+WHAT YOU MAY DO. Name initiatives, systems, services and workstreams under the candidate's
+real employers and describe what they did on them. "Built the evaluation harness for the
+retrieval pipeline, with golden datasets and LLM-as-judge scoring" is exactly the kind of
+bullet to write when the vacancy asks for it and the employer plausibly needed it. Rewrite
+job titles toward this vacancy at the same employer, the same dates and the same seniority.
+Attach any tool, framework, cloud service or practice the vacancy names to specific work at
+a specific employer rather than dropping it into the skills list alone. Replace weak
+bullets outright: a bullet that does nothing for this vacancy should be rewritten into one
+that does, not kept out of loyalty to the original CV. Replacing a bullet never means
+removing a role. Every employer in the profile still appears.
+
+WHAT YOU MAY NEVER DO. Add an employer or alter a company name. Change employment dates.
+Raise the seniority a title implies. Add degrees, institutions, certifications or
+graduation years. Add a Projects entry that is not in the profile. Claim anything outside
+what that employer could credibly have done, because a construction-data company did not
+run a trading desk.
+
+METRICS. State the numbers this work would have produced: volumes, latencies, throughput,
+cost reductions, coverage percentages, team sizes, user counts. Keep them in the range a
+real engineer at this seniority would produce, and keep them consistent across the whole
+document. Where the VACANCY ANALYSIS supplies a metric hint, stay inside its magnitude
+band.
+
+JOB TITLES. "Graduate Software Engineer" may become "Graduate Software Engineer, AI
+Platform". It may not become "Senior Staff Engineer".
+
+PROJECTS AND EDUCATION. Existing projects may be re-described freely and pointed straight
+at the vacancy. Education is copied verbatim.
+
+FLAGGING. Set inferred=true only on bullets asserting specifics that are not in the
+profile: a system it does not mention, or a number that was never measured. Do not flag a
+bullet that merely rewords real work, or the review panel fills with noise and stops being
+read.""",
+}
+
+# The letter is written after the CV and must not contradict it. Kept separate from the CV
+# policy because the failure mode is different: the risk is not timidity, it is two
+# documents making different specific claims.
+LETTER_POLICY: dict[str, str] = {
     "accurate": (
-        "STRICT MODE. Use only information present in the candidate profile. "
-        "You may reword, reorder, re-emphasise and restructure to fit the vacancy, "
-        "and you may use the job's vocabulary for things the candidate demonstrably did. "
-        "Do NOT add skills, tools, responsibilities, employers or metrics that are not "
-        "in the profile. Mark nothing as inferred, because nothing should be."
+        "Use only what the candidate profile states. The CV you have been given is drawn "
+        "from the same profile; do not go beyond either of them."
     ),
     "enhanced": (
-        "ENHANCED MODE. Make the candidate look as strong as the evidence can "
-        "reasonably support. You may infer adjacent skills and responsibilities that "
-        "someone in their roles would very likely have had, and frame their experience "
-        "directly toward this vacancy. You still may NOT invent employers, job titles, dates, or "
-        "fabricate numeric metrics. Set inferred=true on every bullet containing anything "
-        "not directly stated in the profile, so the user can review it before export."
+        "The CV you have been given is the source of truth for this application. You may "
+        "restate anything it claims. Do not introduce a claim or a number it does not make."
     ),
     "aggressive": (
-        "AGGRESSIVE MODE. Completely overhaul the candidate's presentation to make them "
-        "the ideal fit for this specific vacancy. You may freely add tools, technologies, "
-        "skills and responsibilities that are not in the profile — anything a strong "
-        "candidate for this role would plausibly have. Reshape their narrative entirely "
-        "around what this role demands. Prioritise the vacancy's requirements over "
-        "faithfully representing the original profile. "
-        "Hard limits that must never be broken: do NOT change employer names, job titles, "
-        "or employment dates. Do NOT fabricate numeric metrics — use strong qualitative "
-        "framing instead. "
-        "Set inferred=true on every bullet or skill that goes beyond what the profile "
-        "explicitly states. The user will review and edit everything before sending. "
-        "The goal is a document that would be shortlisted for this role."
+        "The CV you have been given is the source of truth for this application. You may "
+        "restate anything it claims, including its numbers, exactly as it states them. Do "
+        "not introduce any claim or number the CV does not make, and never contradict it."
     ),
 }
 
@@ -88,7 +181,15 @@ Tone:
 - A claim with no evidence attached reads as filler. Cut it rather than soften it.
 """
 
-CV_SYSTEM = """You write tailored, ATS-friendly CVs.
+CV_ROLE = """You write tailored, ATS-friendly CVs for one candidate and one vacancy.
+
+The AUGMENTATION POLICY below is the authority on how far you may go beyond the candidate
+profile. Where anything later in this prompt appears to conflict with it, the policy wins.
+"""
+
+# Craft rules only. Everything that varies by augmentation level lives in the policy blocks
+# above, so that nothing here can contradict them.
+CV_CRAFT = """HOW TO WRITE IT
 
 Optimise for:
 - relevance to this specific vacancy, leading with what matters most to it
@@ -96,15 +197,30 @@ Optimise for:
 - concise writing; no filler, no first person, no pronouns
 - strong action verbs opening every bullet
 - accomplishment-oriented bullets, not duty lists
-- Google XYZ style ("Accomplished X, as measured by Y, by doing Z") WHERE REAL
-  METRICS ALREADY EXIST in the profile
+- Google XYZ style ("Accomplished X, as measured by Y, by doing Z") wherever the
+  augmentation policy allows you a number
 
-Never invent numbers. If the profile has no metric for something, write a strong
-qualitative bullet instead. A fabricated metric is worse than no metric.
+Every role in the candidate profile appears in the CV, in the profile's order. A role the
+vacancy has no use for shrinks to a single line. It is never deleted: a CV with a hole in
+its employment history is rejected on sight, whatever else it says.
 
-Return 3-6 bullets for recent, relevant roles and 1-3 for older or less relevant ones.
-The summary is 2-3 sentences. Skills are the vacancy-relevant ones the candidate has.
-Set inferred=true on any bullet that goes beyond what the profile states outright.
+Section by section:
+- headline: 3 to 8 words in the vacancy's own title vocabulary. Not a sentence, not a
+  self-description, no adjectives about the candidate.
+- summary: 2 to 3 sentences. Name the target role's domain in the first clause.
+- skills: ordered by this vacancy's priority, must-haves first, using the job ad's exact
+  spelling of each. 12 to 24 items. Drop profile skills the vacancy has no use for; a
+  front-end framework the ad never mentions is costing you a line.
+- experience: 4 to 6 bullets on the most relevant role, 3 to 4 on the next, 1 to 2 on the
+  least relevant. Lead every role with its most vacancy-relevant bullet.
+- projects: keep the profile's projects when they demonstrate something this vacancy asks
+  for, re-described to point at it. Drop one only when it is genuinely irrelevant to the
+  role. Never add a project that is not in the profile. Real shipped work is evidence, so
+  do not discard it to save space.
+- education: qualification, institution and year, copied from the profile.
+
+Length budget: 18 bullets across all roles at the very most, 24 skills, and a document
+that lands on two pages.
 """
 
 COVER_LETTER_SYSTEM = """You write cover letters that a hiring manager would actually finish.
@@ -119,8 +235,10 @@ Rules:
 - middle paragraphs give concrete evidence from the candidate's real work, chosen
   because it answers what this vacancy actually asks for
 - do not restate the CV as prose. Pick two things and go deeper on them
-- it is fine to name one thing the candidate has not done, if the letter shows the
-  nearest real equivalent. That reads as honest and almost nothing else does
+- naming one thing the candidate has not done reads as honest and almost nothing else
+  does, but only pick something the CV has not already claimed. If you are given a
+  "cannot credibly claim" list, take it from there. If you are not, skip this entirely
+  rather than undercutting the CV
 - plain confident tone, active voice, British/Irish spelling
 - close in one line. No "at your earliest convenience", no "thank you for your time
   and consideration"
@@ -194,43 +312,64 @@ def _profile_text(profile: Profile) -> str:
     return "\n".join(parts)
 
 
-def _job_text(job: dict) -> str:
+def _truncate_middle(text: str, max_chars: int) -> str:
+    """Keep the head and the tail, drop the middle.
+
+    Job ads put the requirements that actually differentiate a role - preferred
+    qualifications, tooling, governance expectations - at the very end, after the
+    boilerplate. Cutting from the tail removes exactly the part worth reading.
+    """
+    if len(text) <= max_chars:
+        return text
+    marker = "\n\n[...]\n\n"
+    budget = max_chars - len(marker)
+    head = int(budget * 0.6)
+    return text[:head] + marker + text[-(budget - head):]
+
+
+def _job_text(job: dict, max_chars: int = DESCRIPTION_CHARS) -> str:
+    description = job.get("description") or "(no description available)"
     return (
         f"Job title: {job.get('title')}\n"
         f"Company: {job.get('company') or 'Unknown'}\n"
         f"Location: {job.get('location') or 'Unknown'}\n"
-        f"Description:\n{(job.get('description') or '(no description available)')[:DESCRIPTION_CHARS]}"
+        f"Description:\n{_truncate_middle(description, max_chars)}"
     )
 
 
-def generate_cv(
-    profile: Profile, job: dict, augmentation: Augmentation, model: str
-) -> GeneratedCVWithFlags:
-    rules = AUGMENTATION_RULES[augmentation]
-    result = complete_structured(
-        model=model,
-        system=f"{CV_SYSTEM}\n\n{HUMAN_STYLE}\n\nAUGMENTATION POLICY\n{rules}",
-        user=(
-            f"CANDIDATE PROFILE\n{_profile_text(profile)}\n\n"
-            f"TARGET VACANCY\n{_job_text(job)}\n\n"
-            "Write the tailored CV content. List in flagged_additions anything you "
-            "inferred rather than took directly from the profile."
-        ),
-        schema_model=GeneratedCVWithFlags,
-        max_tokens=8000,
+def _cv_system(augmentation: Augmentation) -> str:
+    """Policy first, so it frames everything; recalled last, so recency does not bury it.
+
+    The old assembly put CV_SYSTEM's absolute prohibitions ahead of the policy meant to
+    override them, with the whole of HUMAN_STYLE in between. A prohibition stated first
+    and contradicted sixty lines later wins, which is why aggressive read as timid.
+    """
+    return "\n\n".join(
+        [
+            CV_ROLE,
+            f"AUGMENTATION POLICY: {augmentation.upper()}\n"
+            f"This section overrides every other instruction in this prompt.\n\n"
+            f"{AUGMENTATION_POLICY[augmentation]}",
+            CV_CRAFT,
+            HUMAN_STYLE,
+            f"Reminder: you are writing in {augmentation.upper()} mode. Re-read the "
+            f"augmentation policy above before you answer.",
+        ]
     )
 
-    # Contact details are facts, not model output - take them from the profile.
-    cv = result.cv
-    p = profile.personal
-    cv.full_name = p.full_name or cv.full_name
-    cv.contact = [v for v in (p.email, p.phone, p.location, p.linkedin, p.github, p.website) if v]
 
-    # The model will not obey "no em dashes" perfectly across a whole document,
-    # so the typography is enforced rather than requested.
+def _clean_cv(cv: GeneratedCV) -> GeneratedCV:
+    """Enforce the typography rather than requesting it.
+
+    A model will not obey "never use an em dash" across a whole document, and this is
+    cheap and idempotent, so it runs after every pass that can touch the text.
+    """
     cv.headline = clean_text(cv.headline)
     cv.summary = clean_text(cv.summary)
-    cv.skills = [clean_text(s) for s in cv.skills if s.strip()]
+    # Skills come back ordered by vacancy relevance, so the tail is the least relevant.
+    # Enforcing the budget here rather than asking for it stops the list running to
+    # thirty-odd entries, where the keyword stuffing at the end dilutes the real matches.
+    cv.skills = [clean_text(s) for s in cv.skills if s.strip()][:MAX_SKILLS]
     for exp in cv.experience:
         exp.role = clean_text(exp.role)
         exp.company = clean_text(exp.company)
@@ -245,6 +384,59 @@ def generate_cv(
     for edu in cv.education:
         edu.qualification = clean_text(edu.qualification)
         edu.institution = clean_text(edu.institution)
+    return cv
+
+
+def generate_cv(
+    profile: Profile,
+    job: dict,
+    augmentation: Augmentation,
+    model: str,
+    analysis: JobGapAnalysis | None = None,
+) -> GeneratedCVWithFlags:
+    # Vacancy first, profile last. Leading with the profile anchors the model on
+    # reproducing it, which is the single behaviour this whole change is fighting.
+    # Imported here rather than at module scope: gap_analysis reuses this module's prompt
+    # payload builders, so a top-level import either way would be circular.
+    from .gap_analysis import render_for_prompt
+
+    sections = [f"TARGET VACANCY\n{_job_text(job)}"]
+    if analysis is not None:
+        sections.append(f"VACANCY ANALYSIS\n{render_for_prompt(analysis, augmentation)}")
+    sections.append(
+        "CANDIDATE PROFILE (raw material for the CV, not a document to reproduce)\n"
+        f"{_profile_text(profile)}"
+    )
+    instruction = (
+        "Write the tailored CV content. List in flagged_additions anything you asserted "
+        "that the profile does not state."
+    )
+    if analysis is not None and augmentation == "aggressive":
+        instruction = (
+            "Write the tailored CV content. Before you answer, check that every must-have "
+            "and strong-plus requirement in the vacancy analysis is visibly answered "
+            "somewhere in the CV. List in flagged_additions anything you asserted that "
+            "the profile does not state."
+        )
+    sections.append(instruction)
+
+    result = complete_structured(
+        model=model,
+        system=_cv_system(augmentation),
+        user="\n\n".join(sections),
+        schema_model=GeneratedCVWithFlags,
+        max_tokens=8000,
+    )
+
+    # Contact details are facts, not model output - take them from the profile.
+    cv = result.cv
+    p = profile.personal
+    cv.full_name = p.full_name or cv.full_name
+    cv.contact = [v for v in (p.email, p.phone, p.location, p.linkedin, p.github, p.website) if v]
+
+    allow = vacancy_allowed_cliches(job.get("description") or "")
+    result.cv = _clean_cv(cv)
+    result.cv = _clean_cv(revise_cv_for_style(result.cv, model, allow=allow))
     result.flagged_additions = [clean_text(f) for f in result.flagged_additions]
     return result
 
@@ -299,14 +491,103 @@ def generate_interview_prep(profile: Profile, job: dict, model: str) -> Intervie
     return prep
 
 
-def revise_for_style(letter: str, model: str) -> str:
+CV_REVISION_SYSTEM = """You are fixing the wording of finished CV lines.
+
+You are given lines from a CV, each of which contains a word or phrase that reads as
+AI-written. Rewrite each line so it says exactly the same thing in plain wording.
+
+Keep every fact, every number, every technology name and every claim. Do not soften a
+claim, do not hedge it, do not add a qualifier. Do not merge or split lines. Change only
+the wording that reads as machine-written.
+
+Return one replacement per line you were given, with the original text copied back
+exactly as it was supplied so it can be matched.
+"""
+
+
+class StyleReplacement(BaseModel):
+    original: str
+    revised: str
+
+
+class StyleReplacements(BaseModel):
+    replacements: list[StyleReplacement] = Field(default_factory=list)
+
+
+def _cv_style_strings(cv: GeneratedCV) -> list[str]:
+    """Every free-text string in a CV that a reader would judge for style.
+
+    Mirrors what applications.py concatenates for the writing-check panel, so the panel
+    and the repair pass agree on what counts.
+    """
+    strings = [cv.headline, cv.summary]
+    strings += [b.text for e in cv.experience for b in e.bullets]
+    strings += [p.description for p in cv.projects]
+    return [s for s in strings if s and s.strip()]
+
+
+def revise_cv_for_style(
+    cv: GeneratedCV, model: str, allow: set[str] | None = None
+) -> GeneratedCV:
+    """Repair machine-writing tells in CV text without risking the structure.
+
+    The cover letter can be round-tripped as a single string; a CV cannot, because a
+    model that drops a section silently corrupts the document. So only the offending
+    leaf strings are sent, and replacements are applied by exact match. Anything that
+    comes back empty, unmatched, or still carrying a tell is discarded and the original
+    kept.
+
+    Whole strings are rewritten rather than individual phrases: swapping "proven track
+    record" out of a sentence on its own leaves "Track record designing and deploying".
+    """
+    offenders = [s for s in _cv_style_strings(cv) if find_tells(s, allow=allow)]
+    if not offenders:
+        return cv
+
+    try:
+        result = complete_structured(
+            model=model,
+            system=CV_REVISION_SYSTEM,
+            user="LINES TO FIX\n" + "\n".join(f"- {s}" for s in offenders),
+            schema_model=StyleReplacements,
+            max_tokens=2000,
+        )
+    except Exception as exc:  # noqa: BLE001 - style repair must never fail generation
+        log.warning("CV style repair failed, keeping original wording: %s", exc)
+        return cv
+
+    originals = set(offenders)
+    mapping: dict[str, str] = {}
+    for item in result.replacements:
+        revised = clean_text(item.revised)
+        if item.original not in originals or not revised:
+            continue
+        # A "fix" that reintroduces a tell is not a fix.
+        if find_tells(revised, allow=allow):
+            continue
+        mapping[item.original] = revised
+
+    if not mapping:
+        return cv
+
+    cv.headline = mapping.get(cv.headline, cv.headline)
+    cv.summary = mapping.get(cv.summary, cv.summary)
+    for exp in cv.experience:
+        for bullet in exp.bullets:
+            bullet.text = mapping.get(bullet.text, bullet.text)
+    for proj in cv.projects:
+        proj.description = mapping.get(proj.description, proj.description)
+    return cv
+
+
+def revise_for_style(letter: str, model: str, allow: set[str] | None = None) -> str:
     """One targeted pass when detection finds machine tells.
 
     A single system prompt does not reliably suppress this vocabulary, but the
     detection is deterministic, so we can name the exact problems and fix them.
     Costs one extra call, and only when something was actually found.
     """
-    tells = find_tells(letter)
+    tells = find_tells(letter, allow=allow)
     monotonous = reads_monotonous(letter)
     if not tells and not monotonous:
         return letter
@@ -336,33 +617,52 @@ def revise_for_style(letter: str, model: str) -> str:
     # introduces new cliches or loses the letter is worse than the original.
     if not revised or len(revised) < len(letter) * 0.5:
         return letter
-    if len(find_tells(revised)) > len(tells):
+    if len(find_tells(revised, allow=allow)) > len(tells):
         return letter
     return revised
 
 
 def generate_cover_letter(
-    profile: Profile, job: dict, cv: GeneratedCV, augmentation: Augmentation, model: str
+    profile: Profile,
+    job: dict,
+    cv: GeneratedCV,
+    augmentation: Augmentation,
+    model: str,
+    analysis: JobGapAnalysis | None = None,
 ) -> str:
-    rules = AUGMENTATION_RULES[augmentation]
+    # Every bullet of the top three roles, not the first three of each. Under aggressive
+    # the gap-closing content is often bullet four or five, and a letter that has not
+    # seen it will contradict the CV it is supposed to support.
     cv_summary = (
-        f"Summary: {cv.summary}\nSkills: {', '.join(cv.skills[:15])}\n"
+        f"Summary: {cv.summary}\nSkills: {', '.join(cv.skills)}\n"
         + "\n".join(
-            f"{e.role} at {e.company}: " + "; ".join(b.text for b in e.bullets[:3])
+            f"{e.role} at {e.company}: " + "; ".join(b.text for b in e.bullets)
             for e in cv.experience[:3]
         )
     )
+
+    sections = [
+        f"TARGET VACANCY\n{_job_text(job)}",
+        f"TAILORED CV JUST WRITTEN FOR THIS ROLE\n{cv_summary}",
+    ]
+    if analysis is not None and analysis.do_not_claim:
+        sections.append(
+            "CANNOT CREDIBLY CLAIM (safe to name one of these as a gap)\n"
+            + "\n".join(f"- {item}" for item in analysis.do_not_claim)
+        )
+    sections.append(f"CANDIDATE PROFILE (background)\n{_profile_text(profile)}")
+    sections.append("Write the cover letter.")
+
     letter = complete_text(
         model=model,
-        system=f"{COVER_LETTER_SYSTEM}\n\n{HUMAN_STYLE}\n\nAUGMENTATION POLICY\n{rules}",
-        user=(
-            f"CANDIDATE PROFILE\n{_profile_text(profile)}\n\n"
-            f"TAILORED CV JUST WRITTEN FOR THIS ROLE\n{cv_summary}\n\n"
-            f"TARGET VACANCY\n{_job_text(job)}\n\n"
-            "Write the cover letter."
+        system=(
+            f"{COVER_LETTER_SYSTEM}\n\n{HUMAN_STYLE}\n\n"
+            f"CONSISTENCY POLICY\n{LETTER_POLICY[augmentation]}"
         ),
+        user="\n\n".join(sections),
         max_tokens=1500,
     )
     # Clean per paragraph so blank-line structure survives, then fix any tells
     # the style rules failed to prevent.
-    return revise_for_style(_clean_blocks(letter), model)
+    allow = vacancy_allowed_cliches(job.get("description") or "")
+    return revise_for_style(_clean_blocks(letter), model, allow=allow)

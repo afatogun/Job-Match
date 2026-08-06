@@ -126,6 +126,9 @@ def render_cv_docx(cv: GeneratedCV, path: Path) -> Path:
             p = doc.add_paragraph()
             p.paragraph_format.space_before = Pt(7)
             p.paragraph_format.space_after = Pt(1)
+            # Keep the role, its dates and the first bullet together, so a longer CV
+            # cannot orphan a job heading at the foot of a page.
+            p.paragraph_format.keep_with_next = True
             role = p.add_run(exp.role or "")
             role.bold = True
             role.font.size = Pt(11)
@@ -140,6 +143,7 @@ def render_cv_docx(cv: GeneratedCV, path: Path) -> Path:
             if meta_bits:
                 m = doc.add_paragraph()
                 m.paragraph_format.space_after = Pt(3)
+                m.paragraph_format.keep_with_next = True
                 mr = m.add_run("  |  ".join(meta_bits))
                 mr.italic = True
                 mr.font.size = Pt(9)

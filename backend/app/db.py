@@ -101,6 +101,12 @@ MIGRATIONS: list[tuple[str, str]] = [
     ("applications", "stage_updated_at TEXT"),
     ("applications", "interview_prep_json TEXT"),
     ("applications", "interview_prep_generated_at TEXT"),
+    # Vacancy gap analysis, cached per job. The key is a hash of the description and the
+    # profile's updated_at, so it survives regeneration at a different augmentation level
+    # but is invalidated when either input actually changes.
+    ("applications", "gap_analysis_json TEXT"),
+    ("applications", "gap_analysis_key TEXT"),
+    ("applications", "gap_analysis_generated_at TEXT"),
 ]
 
 

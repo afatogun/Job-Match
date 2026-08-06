@@ -22,12 +22,12 @@ export const AUGMENTATION_LEVELS: { value: Augmentation; label: string; blurb: s
   {
     value: 'enhanced',
     label: 'Enhanced',
-    blurb: 'Infers adjacent skills your experience implies and presents you as strongly as the evidence allows.',
+    blurb: 'Rebuilds your CV around the vacancy and makes explicit the skills your real work implies. No invented systems, no new numbers, titles untouched.',
   },
   {
     value: 'aggressive',
     label: 'Aggressive',
-    blurb: 'Full overhaul — adds tools and skills freely to make you the ideal candidate. Review all inferred additions before sending.',
+    blurb: 'Closes every gap in the job ad. Names projects, systems and metrics under your real employers and reworks your job titles toward the role. It will state things you have not done. Check every amber bullet before you send it.',
   },
 ]
 
