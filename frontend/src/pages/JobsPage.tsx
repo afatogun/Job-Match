@@ -170,10 +170,10 @@ export function JobsPage() {
   }
 
   const handleClearJobs = async () => {
-    if (!confirm('Delete all jobs and applications? This cannot be undone.')) return
+    if (!confirm('Clear jobs for the active profile? Existing generated applications will be kept.')) return
     setError(null)
     try {
-      await api.clearJobs()
+      await api.clearJobs(activeProfile?.id)
       setJobs([])
       setTotal(0)
       setSelected(new Set())

@@ -67,6 +67,14 @@ def get_application(job_id: int) -> Application | None:
     return service.get_application(job_id)
 
 
+@router.delete("/jobs/{job_id}/application", status_code=204)
+def delete_application(job_id: int) -> None:
+    try:
+        service.delete_application(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/jobs/{job_id}/generate", response_model=Application)
 def generate(job_id: int, payload: GenerateRequest) -> Application:
     try:

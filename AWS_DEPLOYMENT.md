@@ -1,82 +1,62 @@
-# AWS deployment guide for JobMatch
+# AWS Deployment Guide for JobMatch
 
-## Recommended approach
+This repository currently deploys on AWS using EC2 + PM2 + Nginx.
+That is the active path reflected by these files:
 
-Use a containerized backend on AWS ECS Fargate with persistent storage on EFS and a static frontend on S3 + CloudFront.
+- [deploy-ec2-pm2.sh](deploy-ec2-pm2.sh)
+- [ecosystem.config.cjs](ecosystem.config.cjs)
+- [nginx-ec2.conf](nginx-ec2.conf)
 
-### 1. Build and push the backend image
+## Current Production Pattern (What We Use)
 
-```bash
-aws ecr create-repository --repository-name jobmatch-backend
-aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <account-id>.dkr.ecr.<region>.amazonaws.com
+- One EC2 instance (Amazon Linux or Ubuntu)
+- Backend process: `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000` (PM2)
+- Frontend process: `npx serve -s dist -l 3000` (PM2)
+- Nginx reverse proxy:
+	- `/api/` -> `127.0.0.1:8000`
+	- `/` -> `127.0.0.1:3000`
 
-docker build -t jobmatch-backend .
-docker tag jobmatch-backend:latest <account-id>.dkr.ecr.<region>.amazonaws.com/jobmatch-backend:latest
-docker push <account-id>.dkr.ecr.<region>.amazonaws.com/jobmatch-backend:latest
-```
+## 1. EC2 Prerequisites
 
-### 2. Prepare AWS resources
+Recommended instance for personal use:
 
-- ECS cluster
-- ECS service on Fargate
-- EFS filesystem mounted at /data
-- Secrets Manager entry for OPENAI_API_KEY
-- Public ALB or NLB for the backend
+- t3.small minimum (t2.micro works but is tight)
+- 20-30 GB EBS
+- Security group inbound:
+	- TCP 22 from your IP
+	- TCP 80 from 0.0.0.0/0
+	- TCP 443 from 0.0.0.0/0 (if adding TLS)
 
-### 3. Deploy the backend
+## 2. Clone and Run the Deployment Script
 
-- Use [aws-ecs-task-definition.json](aws-ecs-task-definition.json) as the starting point.
-- Replace the placeholder values for execution role, task role, ECR image, region, and EFS filesystem ID.
-- Set `OPENAI_API_KEY` from Secrets Manager or a secure parameter.
-
-### 4. Deploy the frontend
-
-Build the frontend for production and upload it to S3:
+On the EC2 instance:
 
 ```bash
-cd frontend
-npm install
-npm run build
-aws s3 sync dist s3://<your-bucket-name> --delete
+git clone https://github.com/afatogun/Job-Match.git
+cd Job-Match
+bash deploy-ec2-pm2.sh
 ```
 
-Then configure CloudFront to serve the S3 bucket.
+What the script does:
 
-### 5. Configure environment
+- installs base packages (`git`, `curl`, `nginx`, Node.js 20)
+- installs `uv`
+- installs PM2 and `serve`
+- installs backend/frontend dependencies
+- builds frontend assets
+- configures PM2 apps
+- configures Nginx reverse proxy
+- enables PM2 startup and Nginx systemd services
 
-Set the frontend production API base URL:
+## 3. Environment Configuration
+
+The app expects `.env` at repo root. Start from `.env.example` and set:
 
 ```env
-VITE_API_URL=https://<your-backend-domain>/api
+OPENAI_API_KEY=<your-key>
 ```
 
-For the backend, set:
-
-```env
-OPENAI_API_KEY=<value>
-JOBMATCH_DATA_DIR=/data
-ALLOWED_ORIGINS=https://<your-frontend-domain>
-```
-
-## Notes
-
-- The backend writes uploaded CVs, generated documents, and SQLite data under /data.
-- EFS is the simplest way to preserve state across container restarts.
-- For a single-user prototype, ECS Fargate + EFS + CloudFront is a sensible first deployment.
-
-## EC2 + PM2 option
-
-If you are running a micro instance, EC2 + PM2 is simpler than ECS.
-
-1. Clone the repository onto the instance.
-2. Run `deploy-ec2-pm2.sh` from the repo root.
-3. Open inbound HTTP (port 80) on the EC2 security group.
-
-The script configures PM2 for backend/frontend and installs Nginx as a reverse proxy.
-
-## Storage controls for micro instances
-
-Use these backend environment variables to avoid disk growth:
+Optional for constrained instances:
 
 ```env
 JOBMATCH_AUTO_CLEANUP_ON_START=true
@@ -86,20 +66,60 @@ JOBMATCH_RETENTION_GENERATED_DAYS=21
 JOBMATCH_RETENTION_UPLOADS_DAYS=14
 ```
 
-You can also trigger cleanup manually:
+If you want data on another volume:
+
+```env
+JOBMATCH_DATA_DIR=/path/on/ebs-or-efs
+```
+
+## 4. Verify Services
+
+```bash
+pm2 status
+pm2 logs jobmatch-backend --lines 100
+pm2 logs jobmatch-frontend --lines 100
+sudo nginx -t
+sudo systemctl status nginx
+curl -I http://127.0.0.1:8000/docs
+curl -I http://127.0.0.1
+```
+
+## 5. Updating an Existing EC2 Deployment
+
+```bash
+cd ~/Job-Match
+git pull
+cd backend && ~/.local/bin/uv sync && cd ..
+cd frontend && npm install && npm run build && cd ..
+pm2 restart jobmatch-backend
+pm2 restart jobmatch-frontend
+pm2 save
+sudo systemctl reload nginx
+```
+
+## 6. TLS (Recommended)
+
+If you attach a domain, add HTTPS with Certbot:
+
+```bash
+sudo dnf install -y certbot python3-certbot-nginx || sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d <your-domain>
+```
+
+## 7. Storage and Cleanup Notes
+
+- SQLite DB, uploads and generated documents live under `data/` (or `JOBMATCH_DATA_DIR`).
+- Most growth is file storage (generated DOCX/PDF, uploads), not relational row count.
+- Manual cleanup endpoint:
 
 `POST /api/settings/maintenance/cleanup`
 
-This removes old refresh logs, old generated document folders, and stale uploaded CV files.
+## 8. Optional ECS/Fargate Path (Not Current Default)
 
-## Should you switch to MongoDB?
+If you need managed container orchestration, use ECS as an alternative.
+Starter task definition is available at:
 
-MongoDB will not reduce the biggest storage pressure in this app, because most growth comes from files (generated DOCX/PDF and uploads), not relational query limits.
+- [aws-ecs-task-definition.json](aws-ecs-task-definition.json)
 
-Use this order of optimizations first:
-
-1. Keep SQLite, enable retention cleanup (already supported in backend).
-2. Move `data/` to a larger EBS volume or EFS.
-3. Offload generated files/uploads to S3 with lifecycle rules.
-
-MongoDB only makes sense if you need multi-user concurrency and document-query flexibility beyond SQLite.
+For ECS, use EFS or another persistent store for `data/`.
+This path is currently secondary to EC2 + PM2.

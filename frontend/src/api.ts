@@ -63,7 +63,10 @@ export const api = {
 
   getStats: () => request<Stats>('/api/stats'),
 
-  clearJobs: () => request<void>('/api/jobs', { method: 'DELETE' }),
+  clearJobs: (profileId?: string) =>
+    request<void>(`/api/jobs${profileId ? `?profile_id=${encodeURIComponent(profileId)}` : ''}`, {
+      method: 'DELETE',
+    }),
 
   getJobs: (filters: Partial<JobFilterState>, limit = 50, offset = 0) => {
     const params = new URLSearchParams()
@@ -138,6 +141,8 @@ export const api = {
   getApplications: () => request<Application[]>('/api/applications'),
 
   getApplication: (jobId: number) => request<Application | null>(`/api/jobs/${jobId}/application`),
+
+  deleteApplication: (jobId: number) => request<void>(`/api/jobs/${jobId}/application`, { method: 'DELETE' }),
 
   generate: (jobId: number, augmentation?: Augmentation) =>
     request<Application>(`/api/jobs/${jobId}/generate`, {

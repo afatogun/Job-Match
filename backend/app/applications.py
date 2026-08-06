@@ -6,6 +6,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .config import GENERATED_DIR
 from .db import connect
 from .documents import (
     PdfUnavailable,
@@ -289,6 +290,57 @@ def update_application_stage(job_id: int, stage: ApplicationStage) -> Applicatio
     app_model = get_application(job_id)
     assert app_model is not None
     return app_model
+
+
+def delete_application(job_id: int) -> None:
+    """Delete one generated application and best-effort cleanup generated files."""
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT folder, cv_docx, cv_pdf, cover_letter_docx
+              FROM applications
+             WHERE job_id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("No application generated for this job yet")
+
+        conn.execute("DELETE FROM applications WHERE job_id = ?", (job_id,))
+        conn.execute(
+            "UPDATE jobs SET status = 'saved' WHERE id = ? AND status = 'generated'",
+            (job_id,),
+        )
+
+    folder = Path(row["folder"]).resolve() if row["folder"] else None
+    if folder is None:
+        return
+
+    try:
+        generated_root = GENERATED_DIR.resolve()
+    except OSError:
+        return
+
+    # Only delete files inside our managed generated directory.
+    if folder != generated_root and generated_root not in folder.parents:
+        return
+
+    for name in (row["cv_docx"], row["cv_pdf"], row["cover_letter_docx"]):
+        if not name:
+            continue
+        try:
+            path = folder / name
+            if path.is_file():
+                path.unlink()
+        except OSError as exc:
+            log.warning("Could not remove generated file %s: %s", path, exc)
+
+    try:
+        if folder.exists() and folder.is_dir() and not any(folder.iterdir()):
+            folder.rmdir()
+    except OSError:
+        # Folder may contain other artifacts (for example interview prep exports).
+        pass
 
 
 def generate_application_interview_prep(job_id: int) -> Application:

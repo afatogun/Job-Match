@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from ..db import connect
 from ..models import Job, JobListResponse, RefreshStatus, Stats, StatusUpdate
 from ..pipeline import get_status, is_running, mark_queued, run_refresh
+from ..profile_store import active_profile_id
 
 router = APIRouter(prefix="/api", tags=["jobs"])
 
@@ -180,7 +181,31 @@ def stats() -> Stats:
 
 
 @router.delete("/jobs", status_code=204)
-def clear_jobs() -> None:
-    """Delete every job and its cascade-deleted applications. Irreversible."""
+def clear_jobs(profile_id: str | None = None) -> None:
+    """Delete jobs for one profile while keeping generated applications intact."""
+    target_profile_id = profile_id or active_profile_id()
     with connect() as conn:
-        conn.execute("DELETE FROM jobs")
+        if target_profile_id:
+            # Keep jobs that already have generated applications so app history survives.
+            conn.execute(
+                """
+                DELETE FROM jobs
+                 WHERE (profile_id = ? OR profile_id IS NULL)
+                   AND NOT EXISTS (
+                        SELECT 1 FROM applications a
+                         WHERE a.job_id = jobs.id
+                   )
+                """,
+                (target_profile_id,),
+            )
+        else:
+            conn.execute(
+                """
+                DELETE FROM jobs
+                 WHERE profile_id IS NULL
+                   AND NOT EXISTS (
+                        SELECT 1 FROM applications a
+                         WHERE a.job_id = jobs.id
+                   )
+                """
+            )

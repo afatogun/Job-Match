@@ -10,6 +10,7 @@ export function ApplicationsPage() {
   const [apps, setApps] = useState<Application[] | null>(null)
   const [profiles, setProfiles] = useState<ProfileMeta[]>([])
   const [savingJobId, setSavingJobId] = useState<number | null>(null)
+  const [deletingJobId, setDeletingJobId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -33,6 +34,20 @@ export function ApplicationsPage() {
       setError(e instanceof Error ? e.message : 'Failed to update application stage')
     } finally {
       setSavingJobId(null)
+    }
+  }
+
+  const deleteApplication = async (jobId: number) => {
+    if (!confirm('Delete this generated application pack? This cannot be undone.')) return
+    setDeletingJobId(jobId)
+    setError(null)
+    try {
+      await api.deleteApplication(jobId)
+      setApps((prev) => (prev ? prev.filter((app) => app.job_id !== jobId) : prev))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete application')
+    } finally {
+      setDeletingJobId(null)
     }
   }
 
@@ -120,6 +135,13 @@ export function ApplicationsPage() {
                 >
                   Open
                 </Link>
+                <button
+                  onClick={() => void deleteApplication(app.job_id)}
+                  disabled={deletingJobId === app.job_id}
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {deletingJobId === app.job_id ? 'Deleting…' : 'Delete'}
+                </button>
                 {app.has_cv_docx && (
                   <a
                     href={api.downloadUrl(app.job_id, 'cv.docx')}
