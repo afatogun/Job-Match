@@ -12,7 +12,6 @@ statuses and bulk generation all work end to end.
 - [uv](https://docs.astral.sh/uv/) (manages Python for you)
 - Node.js 20+
 - An OpenAI API key (only for profile parsing, ranking and generation - job discovery works without one)
-- Microsoft Word **or** LibreOffice, for PDF export. Without either you still get DOCX.
 
 > The backend pins **Python 3.12**. This is not cosmetic: `python-jobspy` hard-pins
 > `numpy==1.26.3`, whose Windows wheels stop at cp312, so it cannot install on 3.13+.

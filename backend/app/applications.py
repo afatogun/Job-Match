@@ -9,12 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import GENERATED_DIR
+from .cv_pdf import render_cv_pdf
 from .db import connect
 from .documents import (
-    PdfUnavailable,
     application_folder,
-    docx_to_pdf,
-    render_cv_pdf_simple,
     render_cover_letter_docx,
     render_cv_docx,
     slugify,
@@ -165,14 +163,10 @@ def render_documents(job_id: int) -> tuple[bool, str | None]:
 
     pdf_ok, pdf_error = True, None
     try:
-        docx_to_pdf(cv_docx, cv_pdf)
-    except PdfUnavailable as exc:
-        try:
-            render_cv_pdf_simple(app_model.cv, cv_pdf)
-        except Exception as fallback_exc:  # noqa: BLE001
-            pdf_ok, pdf_error = False, f"{exc}; fallback PDF render failed: {fallback_exc}"
-        else:
-            pdf_ok, pdf_error = True, None
+        render_cv_pdf(app_model.cv, cv_pdf)
+    except Exception as exc:  # noqa: BLE001 - PDF is best-effort; DOCX must survive
+        log.warning("CV PDF render failed for job %s: %s", job_id, exc, exc_info=True)
+        pdf_ok, pdf_error = False, f"PDF render failed: {exc}"
 
     with connect() as conn:
         conn.execute(

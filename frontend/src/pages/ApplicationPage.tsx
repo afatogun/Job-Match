@@ -377,7 +377,7 @@ export function ApplicationPage() {
               ) : (
                 <span
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-400"
-                  title="PDF conversion needs Microsoft Word or LibreOffice installed"
+                  title="PDF generation failed for this application. Regenerate to try again."
                 >
                   PDF unavailable
                 </span>

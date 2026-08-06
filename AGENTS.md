@@ -16,6 +16,9 @@ cd frontend; npm run dev
 
 # Smoke-test a job source directly
 cd backend; uv run python -m app.scripts.smoke_indeed
+
+# Preview CV PDF renderer output
+cd backend; uv run python -m app.scripts.preview_cv_pdf
 ```
 
 **Backend:** http://127.0.0.1:8000 · API docs at /docs
@@ -42,7 +45,8 @@ backend/app/
   ranking.py        Batched AI ranking (8 jobs/call), structured output → JSON fallback
   gap_analysis.py   Vacancy requirement extraction + profile diff, feeds CV generation
   generation.py     Augmentation policy + human-style enforcement (50+ banned ML buzzwords)
-  documents.py      DOCX rendering (Calibri 10.5pt, ATS-safe) + LibreOffice/Word PDF export
+  documents.py      DOCX rendering (Calibri 10.5pt, ATS-safe)
+  cv_pdf.py         CV PDF rendering (ReportLab Platypus, embedded Source fonts)
   applications.py   Orchestrates generation; bulk run state via in-memory lock
   cv_import.py      PDF/DOCX/TXT → plain text → OpenAI → Profile
   profile_store.py  data/profile.json read/write
@@ -103,6 +107,6 @@ Types in `frontend/src/types.ts` mirror backend Pydantic models. Keep them in sy
 - **Do not upgrade Python** past 3.12 — see constraint above.
 - **No test suite** — validate changes manually or via the smoke script.
 - `data/` is gitignored. Do not assume it exists; the lifespan hook creates it.
-- PDF export is best-effort (requires LibreOffice or Word). Don't error if unavailable.
+- PDF export is best-effort (pure ReportLab, no system dependencies). Don't error if unavailable.
 - DOCX rendering is ATS-safe: no tables, text boxes, or icons. Keep it that way.
 - The `.env` file is at the **repo root**, not inside `backend/`.
