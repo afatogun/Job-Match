@@ -11,7 +11,6 @@ import { StatsBar } from '../components/StatsBar'
 import { EmptyState, Spinner } from '../components/ui'
 import type {
   Augmentation,
-  CountryOption,
   GenerationStatus,
   Job,
   JobFilterState,
@@ -49,7 +48,6 @@ export function JobsPage() {
   const [generation, setGeneration] = useState<GenerationStatus | null>(null)
   const [augmentation, setAugmentation] = useState<Augmentation | undefined>()
   const [settings, setSettings] = useState<SearchSettings | null>(null)
-  const [countries, setCountries] = useState<CountryOption[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -74,7 +72,6 @@ export function JobsPage() {
 
   useEffect(() => {
     api.getSources().then(setSources).catch(() => setSources([]))
-    api.getCountries().then(setCountries).catch(() => setCountries([]))
     api.listProfiles().then(setProfiles).catch(() => setProfiles([]))
     api
       .getSettings()
@@ -170,7 +167,7 @@ export function JobsPage() {
     }
   }
 
-  const handleSaveSearchSettings = async (next: { country: string; location: string }) => {
+  const handleSaveSearchSettings = async (next: { location: string }) => {
     if (!settings) return
     const saved = await api.saveSettings({ ...settings, ...next }, activeProfile?.id)
     setSettings(saved)
@@ -264,12 +261,7 @@ export function JobsPage() {
 
       <StatsBar stats={stats} />
       {settings && (
-        <LocationQuickEdit
-          country={settings.country}
-          location={settings.location}
-          countries={countries}
-          onSave={handleSaveSearchSettings}
-        />
+        <LocationQuickEdit location={settings.location} onSave={handleSaveSearchSettings} />
       )}
       <div className="flex flex-wrap items-start gap-3">
         <div className="flex-1">

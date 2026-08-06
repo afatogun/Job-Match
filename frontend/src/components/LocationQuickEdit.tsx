@@ -1,21 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { CountryOption } from '../types'
 import { Card } from './ui'
 
 interface Props {
-  country: string
   location: string
-  countries: CountryOption[]
-  onSave: (next: { country: string; location: string }) => Promise<void>
+  onSave: (next: { location: string }) => Promise<void>
 }
 
 const inputClass =
   'rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-500 focus:outline-none'
 
-export function LocationQuickEdit({ country, location, countries, onSave }: Props) {
-  const [draftCountry, setDraftCountry] = useState(country)
+export function LocationQuickEdit({ location, onSave }: Props) {
   const [draftLocation, setDraftLocation] = useState(location)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -23,18 +19,17 @@ export function LocationQuickEdit({ country, location, countries, onSave }: Prop
 
   // Resync when the active profile changes underneath us.
   useEffect(() => {
-    setDraftCountry(country)
     setDraftLocation(location)
-  }, [country, location])
+  }, [location])
 
-  const dirty = draftCountry !== country || draftLocation !== location
+  const dirty = draftLocation !== location
 
   const save = async () => {
     setSaving(true)
     setMessage(null)
     setError(null)
     try {
-      await onSave({ country: draftCountry, location: draftLocation })
+      await onSave({ location: draftLocation })
       setMessage('Saved.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save')
@@ -53,21 +48,6 @@ export function LocationQuickEdit({ country, location, countries, onSave }: Prop
           className={`mt-1 w-full ${inputClass}`}
           placeholder="e.g. Belfast, Northern Ireland"
         />
-      </div>
-      <div className="min-w-[180px]">
-        <label className="text-xs font-medium text-slate-700">Country</label>
-        <select
-          value={draftCountry}
-          onChange={(e) => setDraftCountry(e.target.value)}
-          className={`mt-1 w-full ${inputClass}`}
-        >
-          <option value="auto">Auto-detect from location</option>
-          {countries.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
       </div>
       <button
         onClick={save}
